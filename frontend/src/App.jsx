@@ -125,17 +125,6 @@ function App() {
     }
   }, [fen, apiKey, isAiThinking, game, isPlayerTurn]);
 
-  // + Эффект для автоматического хода AI когда его очередь
-  useEffect(() => {
-    if (apiKey && !game.isGameOver() && !isAiThinking && isAiTurn()) {
-      // Небольшая задержка для лучшего UX
-      const timer = setTimeout(() => {
-        makeAiMove();
-      }, 300);
-      return () => clearTimeout(timer);
-    }
-  }, [fen, apiKey, isAiThinking, isAiTurn, makeAiMove]);
-
   // Функция для получения хода от AI
   const makeAiMove = useCallback(async () => {
     if (!apiKey || game.isGameOver() || isAiThinking || !isAiTurn()) return;
@@ -184,6 +173,17 @@ function App() {
       setIsAiThinking(false);
     }
   }, [apiKey, aiStrategy, game, isAiThinking, isAiTurn, aiSide]);
+
+  // + Эффект для автоматического хода AI когда его очередь
+  useEffect(() => {
+    if (apiKey && !game.isGameOver() && !isAiThinking && isAiTurn()) {
+      // Небольшая задержка для лучшего UX
+      const timer = setTimeout(() => {
+        makeAiMove();
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [fen, apiKey, isAiThinking, isAiTurn, makeAiMove]);
 
   // Вспомогательная функция для выполнения хода
   const executeMove = useCallback((sourceSquare, targetSquare, promotion = null) => {
