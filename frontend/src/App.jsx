@@ -137,7 +137,7 @@ function App() {
       
       const response = await getAiMove({
         fen: game.fen(),
-        history: game.pgn(),
+        // history: game.pgn(), // Убираем историю - фокус только на текущей позиции
         strategy: aiStrategy,
         model: selectedModel,
         apiKey: apiKey,

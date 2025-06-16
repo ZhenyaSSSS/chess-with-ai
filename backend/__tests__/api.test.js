@@ -30,9 +30,9 @@ describe('Chess AI Backend API', () => {
   describe('POST /api/get-ai-move', () => {
     const validRequestBody = {
       fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
-      history: '1. e4 e5',
       apiKey: 'valid-api-key-12345',
-      strategy: 'Control the center'
+      strategy: 'Control the center',
+      aiSide: 'black'
     };
 
     it('должен успешно возвращать ход AI при валидных данных', async () => {
@@ -52,10 +52,10 @@ describe('Chess AI Backend API', () => {
       expect(response.body).toEqual(mockAiResponse);
       expect(aiService.getAiMove).toHaveBeenCalledWith({
         fen: validRequestBody.fen,
-        history: validRequestBody.history,
         strategy: validRequestBody.strategy,
         apiKey: validRequestBody.apiKey,
-        model: 'gemini-2.5-pro-preview-05-06'
+        model: 'gemini-2.5-pro-preview-05-06',
+        aiSide: validRequestBody.aiSide
       });
     });
 
@@ -152,10 +152,10 @@ describe('Chess AI Backend API', () => {
       expect(response.body).toEqual(mockAiResponse);
       expect(aiService.getAiMove).toHaveBeenCalledWith({
         fen: minimalBody.fen,
-        history: '',
         strategy: 'Начинаю партию с фокусом на развитие фигур и контроль центра. План: быстрое развитие, безопасность короля, затем тактические возможности.',
         apiKey: minimalBody.apiKey,
-        model: 'gemini-2.5-pro-preview-05-06'
+        model: 'gemini-2.5-pro-preview-05-06',
+        aiSide: 'black'
       });
     });
   });

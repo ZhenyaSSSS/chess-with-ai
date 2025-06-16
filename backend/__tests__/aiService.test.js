@@ -112,8 +112,8 @@ describe('AIService', () => {
   describe('createPrompt', () => {
     const gameState = {
       fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
-      history: '1. e4 e5',
-      strategy: 'Control the center'
+      strategy: 'Control the center',
+      aiSide: 'black'
     };
 
     it('должен создавать промпт с основной информацией', () => {
@@ -121,7 +121,7 @@ describe('AIService', () => {
       
       expect(prompt).toContain('гроссмейстер по шахматам');
       expect(prompt).toContain(gameState.fen);
-      expect(prompt).toContain(gameState.history);
+      expect(prompt).toContain('ФОКУС НА ПОЗИЦИИ');
       expect(prompt).toContain(gameState.strategy);
       expect(prompt).toContain('White'); // Ход белых
     });
@@ -159,9 +159,9 @@ describe('AIService', () => {
   describe('getAiMove', () => {
     const gameState = {
       fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
-      history: '',
       strategy: 'Open game',
-      apiKey: 'valid-api-key'
+      apiKey: 'valid-api-key',
+      aiSide: 'black'
     };
 
     it('должен успешно получать валидный ход от AI', async () => {

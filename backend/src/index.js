@@ -94,7 +94,7 @@ app.post('/api/get-models', async (req, res) => {
 // Главный эндпоинт для получения хода AI
 app.post('/api/get-ai-move', async (req, res) => {
   try {
-    const { fen, history, apiKey, strategy, model } = req.body;
+    const { fen, apiKey, strategy, model, aiSide } = req.body;
 
     // Валидация входных данных
     if (!fen || typeof fen !== 'string') {
@@ -111,8 +111,8 @@ app.post('/api/get-ai-move', async (req, res) => {
 
     console.log('Получен запрос на ход AI:', {
       fen: fen.substring(0, 50) + '...',
-      hasHistory: !!history,
       hasStrategy: !!strategy,
+      aiSide: aiSide || 'not specified',
       apiKeyLength: apiKey.length,
       model: model || 'gemini-2.5-pro-preview-05-06 (default)'
     });
@@ -120,10 +120,10 @@ app.post('/api/get-ai-move', async (req, res) => {
     // Вызываем сервис AI для получения хода
     const result = await aiService.getAiMove({
       fen,
-      history: history || '',
       strategy: strategy || 'Начинаю партию с фокусом на развитие фигур и контроль центра. План: быстрое развитие, безопасность короля, затем тактические возможности.',
       apiKey,
-      model: model || 'gemini-2.5-pro-preview-05-06'
+      model: model || 'gemini-2.5-pro-preview-05-06',
+      aiSide: aiSide || 'black'
     });
 
     console.log('AI успешно предоставил ход:', result.move, `(модель: ${result.model})`);

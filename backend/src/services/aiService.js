@@ -277,7 +277,7 @@ class AIService {
    * @returns {string} Промпт для AI
    */
   createPrompt(gameState, previousError = null) {
-    const { fen, history, strategy, aiSide } = gameState;
+    const { fen, strategy, aiSide } = gameState;
     
     const chess = new Chess(fen);
     const possibleMoves = chess.moves({ verbose: true }).map(m => m.san);
@@ -311,8 +311,8 @@ ${kingPosition}
 🏛️ **КОНТРОЛЬ ЦЕНТРА:**
 ${centerControl}
 
-📈 **ИСТОРИЯ ПАРТИИ (PGN):**
-${history || 'Партия только началась - возможность задать тон!'}
+📈 **ФОКУС НА ПОЗИЦИИ:**
+Анализируем только текущую позицию без влияния предыдущих ходов
 
 🧠 **ТВОЯ ТЕКУЩАЯ СТРАТЕГИЯ:**
 "${strategy}"
@@ -563,7 +563,7 @@ ${possibleMoves.join(', ')}
    * @returns {Promise<Object>} Результат с ходом и стратегией
    */
   async getAiMove(gameState) {
-    const { fen, history, strategy, apiKey, model = 'gemini-2.5-pro-preview-05-06' } = gameState;
+    const { fen, strategy, apiKey, model = 'gemini-2.5-pro-preview-05-06', aiSide } = gameState;
 
     if (!apiKey) {
       throw new Error('API_KEY_INVALID: API ключ не предоставлен');
@@ -596,7 +596,7 @@ ${possibleMoves.join(', ')}
         console.log(`Попытка ${attempt}/${this.maxAttempts} получить ход от AI (модель: ${model})`);
 
         const prompt = this.createPrompt(
-          { fen, history, strategy: strategy || this.defaultStrategy },
+          { fen, strategy: strategy || this.defaultStrategy, aiSide },
           lastError
         );
 
