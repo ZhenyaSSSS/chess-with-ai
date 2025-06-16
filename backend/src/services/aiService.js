@@ -325,6 +325,9 @@ ${centerControl}
 🧠 **ТВОЯ ТЕКУЩАЯ СТРАТЕГИЯ:**
 "${strategy}"
 
+🔍 **АНАЛИЗ ТВОИХ ФИГУР:**
+${this.analyzePiecesOnBoard(chess, aiSide)}
+
 🎯 **ДОСТУПНЫЕ ХОДЫ (ВСЕ ВОЗМОЖНЫЕ ХОДЫ):**
 ${possibleMoves.join(', ')}
 
@@ -376,7 +379,9 @@ ${possibleMoves.join(', ')}
   "strategy": "Детальная стратегия: обоснование хода + план на 2-3 хода + главная идея (до 200 символов)"
 }
 
-🚨🚨🚨 КРИТИЧЕСКИ ВАЖНО: Ход должен быть ТОЧНОЙ КОПИЕЙ из списка! Нельзя изобретать ходы! 🚨🚨🚨`;
+🚨🚨🚨 КРИТИЧЕСКИ ВАЖНО: Ход должен быть ТОЧНОЙ КОПИЕЙ из списка! Нельзя изобретать ходы! 🚨🚨🚨
+
+⚠️ НЕ ДЕЛАЙ ХОДЫ ФИГУРАМИ, КОТОРЫХ НЕТ НА ДОСКЕ! Проверь анализ своих фигур выше!`;
 
     if (previousError) {
       prompt += `\n\n🚨 **ИСПРАВЛЕНИЕ ОШИБКИ:**
@@ -513,6 +518,56 @@ ${possibleMoves.join(', ')}
     } else {
       return `Равный контроль центра (${whiteControl}:${blackControl})`;
     }
+  }
+
+  /**
+   * Анализирует фигуры конкретного игрока на доске
+   * @param {Chess} chess - Объект игры
+   * @param {string} side - Сторона игрока ('white' или 'black')
+   * @returns {string} Подробный анализ фигур игрока
+   */
+  analyzePiecesOnBoard(chess, side) {
+    const color = side === 'white' ? 'w' : 'b';
+    const board = chess.board();
+    const pieceNames = { 
+      p: 'пешек', r: 'ладей', n: 'коней', 
+      b: 'слонов', q: 'ферзей', k: 'король' 
+    };
+    
+    // Подсчитываем фигуры игрока
+    const pieces = {};
+    const positions = {};
+    
+    for (let rank = 0; rank < 8; rank++) {
+      for (let file = 0; file < 8; file++) {
+        const piece = board[rank][file];
+        if (piece && piece.color === color) {
+          const square = String.fromCharCode(97 + file) + (8 - rank);
+          
+          if (!pieces[piece.type]) {
+            pieces[piece.type] = 0;
+            positions[piece.type] = [];
+          }
+          pieces[piece.type]++;
+          positions[piece.type].push(square);
+        }
+      }
+    }
+    
+    let analysis = `Твои фигуры на доске:\n`;
+    
+    // Все фигуры в одинаковом формате
+    const pieceOrder = ['k', 'q', 'r', 'b', 'n', 'p']; // Порядок по важности
+    
+    pieceOrder.forEach(type => {
+      if (pieces[type]) {
+        analysis += `- ${pieceNames[type].charAt(0).toUpperCase() + pieceNames[type].slice(1)} (${pieces[type]}): ${positions[type].join(', ')}\n`;
+      } else {
+        analysis += `- ${pieceNames[type].charAt(0).toUpperCase() + pieceNames[type].slice(1)}: НЕТ НА ДОСКЕ\n`;
+      }
+    });
+    
+    return analysis.trim();
   }
 
   /**
