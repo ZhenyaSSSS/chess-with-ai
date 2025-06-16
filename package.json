@@ -17,8 +17,8 @@
     "test:frontend": "cd frontend && npm test",
     "build": "cd frontend && npm run build",
     "build:production": "NODE_ENV=production npm run build",
-    "start": "cd backend && npm start",
-    "start:production": "cd backend && NODE_ENV=production npm start",
+    "start": "node backend/src/index.js",
+    "start:production": "NODE_ENV=production node backend/src/index.js",
     "heroku-postbuild": "npm run install:all && npm run build",
     "deploy:render": "npm run install:all && npm run build && npm run start:production"
   },
