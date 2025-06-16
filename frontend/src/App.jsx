@@ -5,6 +5,44 @@ import GameInfoPanel from './components/GameInfoPanel'
 import ApiKeyModal from './components/ApiKeyModal'
 import { getAiMove } from './services/apiService'
 
+// Компонент для выбора фигуры превращения
+function PromotionModal({ isOpen, onSelect, onCancel, isWhite }) {
+  if (!isOpen) return null;
+
+  const pieces = [
+    { type: 'q', name: 'Ферзь', symbol: isWhite ? '♕' : '♛' },
+    { type: 'r', name: 'Ладья', symbol: isWhite ? '♖' : '♜' },
+    { type: 'b', name: 'Слон', symbol: isWhite ? '♗' : '♝' },
+    { type: 'n', name: 'Конь', symbol: isWhite ? '♘' : '♞' }
+  ];
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg p-6 shadow-xl">
+        <h3 className="text-xl font-bold mb-4 text-center">Выберите фигуру для превращения</h3>
+        <div className="grid grid-cols-2 gap-3">
+          {pieces.map((piece) => (
+            <button
+              key={piece.type}
+              onClick={() => onSelect(piece.type)}
+              className="flex flex-col items-center p-4 border-2 border-gray-300 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors"
+            >
+              <span className="text-4xl mb-2">{piece.symbol}</span>
+              <span className="text-sm font-medium">{piece.name}</span>
+            </button>
+          ))}
+        </div>
+        <button
+          onClick={onCancel}
+          className="w-full mt-4 py-2 px-4 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors"
+        >
+          Отмена
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function App() {
   // Создаем экземпляр игры - это основное состояние шахматной партии
   const game = useMemo(() => new Chess(), []);
@@ -12,7 +50,7 @@ function App() {
   // Состояния React для UI
   const [fen, setFen] = useState(game.fen());
   const [apiKey, setApiKey] = useState(null);
-  const [aiStrategy, setAiStrategy] = useState('Играю стратегически, чтобы выиграть партию.');
+  const [aiStrategy, setAiStrategy] = useState('Начинаю партию с фокусом на развитие фигур и контроль центра. План: быстрое развитие, безопасность короля, затем тактические возможности.');
   const [gameStatus, setGameStatus] = useState('Введите API ключ для начала игры');
   const [isAiThinking, setIsAiThinking] = useState(false);
   const [error, setError] = useState(null);
@@ -21,6 +59,27 @@ function App() {
   const [possibleMoves, setPossibleMoves] = useState([]);
   const [lastMove, setLastMove] = useState(null);
   const [selectedModel, setSelectedModel] = useState('gemini-2.5-pro-preview-05-06');
+  
+  // + Добавляем четкое определение сторон
+  const [playerSide, setPlayerSide] = useState('white'); // 'white' или 'black'
+  const [aiSide, setAiSide] = useState('black'); // противоположная сторона
+
+  // + Состояния для превращения пешки
+  const [pendingPromotion, setPendingPromotion] = useState(null);
+  const [showPromotionModal, setShowPromotionModal] = useState(false);
+
+  // Функция для определения, чей сейчас ход
+  const isPlayerTurn = useCallback(() => {
+    const currentTurn = game.turn(); // 'w' или 'b'
+    const playerColor = playerSide === 'white' ? 'w' : 'b';
+    return currentTurn === playerColor;
+  }, [game, playerSide]);
+
+  const isAiTurn = useCallback(() => {
+    const currentTurn = game.turn(); // 'w' или 'b' 
+    const aiColor = aiSide === 'white' ? 'w' : 'b';
+    return currentTurn === aiColor;
+  }, [game, aiSide]);
 
   // Эффект для обновления статуса игры
   useEffect(() => {
@@ -46,19 +105,40 @@ function App() {
       return;
     }
 
+    // + Улучшенное определение статуса с учетом сторон
     const turn = game.turn() === 'w' ? 'Белые' : 'Черные';
     const isCheck = game.inCheck();
+    const isPlayersTurn = isPlayerTurn();
     
     if (isCheck) {
-      setGameStatus(`${turn} ходят - ШАХ!`);
+      if (isPlayersTurn) {
+        setGameStatus(`${turn} ходят (ВЫ) - ШАХ!`);
+      } else {
+        setGameStatus(`${turn} ходят (AI) - ШАХ!`);
+      }
     } else {
-      setGameStatus(`${turn} ходят`);
+      if (isPlayersTurn) {
+        setGameStatus(`${turn} ходят (ВЫ)`);
+      } else {
+        setGameStatus(`${turn} ходят (AI)`);
+      }
     }
-  }, [fen, apiKey, isAiThinking, game]);
+  }, [fen, apiKey, isAiThinking, game, isPlayerTurn]);
+
+  // + Эффект для автоматического хода AI когда его очередь
+  useEffect(() => {
+    if (apiKey && !game.isGameOver() && !isAiThinking && isAiTurn()) {
+      // Небольшая задержка для лучшего UX
+      const timer = setTimeout(() => {
+        makeAiMove();
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [fen, apiKey, isAiThinking, isAiTurn, makeAiMove]);
 
   // Функция для получения хода от AI
   const makeAiMove = useCallback(async () => {
-    if (!apiKey || game.isGameOver() || isAiThinking) return;
+    if (!apiKey || game.isGameOver() || isAiThinking || !isAiTurn()) return;
 
     setIsAiThinking(true);
     setError(null);
@@ -71,7 +151,9 @@ function App() {
         history: game.pgn(),
         strategy: aiStrategy,
         model: selectedModel,
-        apiKey: apiKey
+        apiKey: apiKey,
+        // + Добавляем информацию о стороне AI
+        aiSide: aiSide
       });
 
       console.log('AI ответил:', response);
@@ -85,6 +167,7 @@ function App() {
           move: response.move,
           san: move.san,
           player: 'AI',
+          side: aiSide,
           timestamp: Date.now()
         }]);
         setLastMove({ from: move.from, to: move.to });
@@ -100,19 +183,11 @@ function App() {
     } finally {
       setIsAiThinking(false);
     }
-  }, [apiKey, aiStrategy, game, isAiThinking]);
+  }, [apiKey, aiStrategy, game, isAiThinking, isAiTurn, aiSide]);
 
-  // Обработчик хода игрока
-  const onPieceDrop = useCallback((sourceSquare, targetSquare, piece) => {
-    if (isAiThinking || !apiKey || game.isGameOver()) {
-      return false;
-    }
-
+  // Вспомогательная функция для выполнения хода
+  const executeMove = useCallback((sourceSquare, targetSquare, promotion = null) => {
     try {
-      // Определяем тип превращения пешки (по умолчанию - ферзь)
-      const promotion = piece[1].toLowerCase() === 'p' && 
-                      (targetSquare[1] === '8' || targetSquare[1] === '1') ? 'q' : undefined;
-
       const move = game.move({
         from: sourceSquare,
         to: targetSquare,
@@ -120,16 +195,16 @@ function App() {
       });
 
       if (move === null) {
-        // Невалидный ход
         return false;
       }
 
       // Ход валидный - обновляем состояние
       setFen(game.fen());
       setMoveHistory(prev => [...prev, {
-        move: `${sourceSquare}${targetSquare}`,
+        move: `${sourceSquare}${targetSquare}${promotion || ''}`,
         san: move.san,
         player: 'Человек',
+        side: playerSide,
         timestamp: Date.now()
       }]);
       setLastMove({ from: sourceSquare, to: targetSquare });
@@ -138,36 +213,74 @@ function App() {
       setError(null);
 
       console.log('✅ Игрок сделал ход:', move.san);
-
-      // Если игра не окончена, запрашиваем ход AI
-      if (!game.isGameOver()) {
-        // Небольшая задержка для лучшего UX
-        setTimeout(() => {
-          makeAiMove();
-        }, 300);
-      }
-
       return true;
     } catch (error) {
       console.error('Ошибка при ходе игрока:', error);
       return false;
     }
-  }, [game, isAiThinking, apiKey, makeAiMove]);
+  }, [game, playerSide]);
+
+  // Обработчик выбора фигуры превращения
+  const handlePromotionSelect = useCallback((promotionPiece) => {
+    if (pendingPromotion) {
+      const success = executeMove(
+        pendingPromotion.from,
+        pendingPromotion.to,
+        promotionPiece
+      );
+      
+      if (success) {
+        setPendingPromotion(null);
+        setShowPromotionModal(false);
+      }
+    }
+  }, [pendingPromotion, executeMove]);
+
+  // Обработчик отмены превращения
+  const handlePromotionCancel = useCallback(() => {
+    setPendingPromotion(null);
+    setShowPromotionModal(false);
+  }, []);
+
+  // Обработчик хода игрока
+  const onPieceDrop = useCallback((sourceSquare, targetSquare, piece) => {
+    if (isAiThinking || !apiKey || game.isGameOver() || !isPlayerTurn()) {
+      return false;
+    }
+
+    // Проверяем, является ли это превращением пешки
+    const movingPiece = game.get(sourceSquare);
+    const isPromotion = movingPiece && 
+                       movingPiece.type === 'p' && 
+                       ((movingPiece.color === 'w' && targetSquare[1] === '8') || 
+                        (movingPiece.color === 'b' && targetSquare[1] === '1'));
+
+    if (isPromotion) {
+      // Сохраняем ход для превращения и показываем модальное окно
+      setPendingPromotion({ from: sourceSquare, to: targetSquare });
+      setShowPromotionModal(true);
+      return false; // Ход еще не выполнен, ждем выбора фигуры
+    }
+
+    // Обычный ход (не превращение)
+    return executeMove(sourceSquare, targetSquare);
+  }, [game, isAiThinking, apiKey, isPlayerTurn, executeMove]);
 
   // Обработчик клика по клетке
   const onSquareClick = useCallback((square) => {
-    if (isAiThinking || !apiKey || game.isGameOver()) {
+    if (isAiThinking || !apiKey || game.isGameOver() || !isPlayerTurn()) {
       return;
     }
 
     // Если уже выбрана клетка и кликнули на другую - пытаемся сделать ход
     if (selectedSquare && selectedSquare !== square) {
-      const moveAttempted = onPieceDrop(selectedSquare, square, 
-        game.get(selectedSquare)?.type + game.get(selectedSquare)?.color || 'p'
-      );
-      
-      if (moveAttempted) {
-        return; // Ход сделан
+      const piece = game.get(selectedSquare);
+      if (piece) {
+        const moveAttempted = onPieceDrop(selectedSquare, square, piece);
+        
+        if (moveAttempted) {
+          return; // Ход сделан
+        }
       }
     }
 
@@ -186,7 +299,20 @@ function App() {
         setPossibleMoves([]);
       }
     }
-  }, [selectedSquare, onPieceDrop, game, isAiThinking, apiKey]);
+  }, [selectedSquare, onPieceDrop, game, isAiThinking, apiKey, isPlayerTurn]);
+
+  // + Функция смены сторон
+  const switchSides = useCallback(() => {
+    if (isAiThinking || game.history().length > 0) return; // Нельзя менять стороны во время игры
+
+    const newPlayerSide = playerSide === 'white' ? 'black' : 'white';
+    const newAiSide = aiSide === 'white' ? 'black' : 'white';
+    
+    setPlayerSide(newPlayerSide);
+    setAiSide(newAiSide);
+    
+    console.log(`Стороны поменялись: Игрок - ${newPlayerSide}, AI - ${newAiSide}`);
+  }, [playerSide, aiSide, isAiThinking, game]);
 
   // Функция новой игры
   const startNewGame = useCallback(() => {
@@ -198,24 +324,41 @@ function App() {
     setLastMove(null);
     setError(null);
     setIsAiThinking(false);
-    setAiStrategy('Играю стратегически, чтобы выиграть партию.');
+    setAiStrategy('Начинаю партию с фокусом на развитие фигур и контроль центра. План: быстрое развитие, безопасность короля, затем тактические возможности.');
+    // Сброс состояния превращения пешки
+    setPendingPromotion(null);
+    setShowPromotionModal(false);
   }, [game]);
 
-  // Функция отмены хода
+  // + Исправленная функция отмены хода с учетом сторон
   const undoMove = useCallback(() => {
-    if (isAiThinking || moveHistory.length < 2) return;
+    if (isAiThinking || moveHistory.length === 0) return;
     
-    // Отменяем 2 хода (игрока и AI)
-    game.undo(); // AI ход
-    game.undo(); // Ход игрока
+    const lastMoveInfo = moveHistory[moveHistory.length - 1];
+    
+    // Отменяем только последний ход
+    game.undo();
+    
+    // Если последний ход был ходом AI и есть еще ходы, отменяем также ход игрока
+    if (lastMoveInfo.player === 'AI' && moveHistory.length >= 2) {
+      game.undo();
+      setMoveHistory(prev => prev.slice(0, -2)); // Убираем 2 хода
+    } else {
+      setMoveHistory(prev => prev.slice(0, -1)); // Убираем 1 ход
+    }
     
     setFen(game.fen());
-    setMoveHistory(prev => prev.slice(0, -2));
     setSelectedSquare(null);
     setPossibleMoves([]);
     setLastMove(null);
     setError(null);
-  }, [game, isAiThinking, moveHistory.length]);
+    
+    // Сброс состояния превращения пешки
+    setPendingPromotion(null);
+    setShowPromotionModal(false);
+    
+    console.log('✅ Ход отменен. Текущая очередь:', game.turn() === 'w' ? 'белые' : 'черные');
+  }, [game, isAiThinking, moveHistory]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-600 to-purple-700 p-4">
@@ -243,6 +386,7 @@ function App() {
                 possibleMoves={possibleMoves}
                 lastMove={lastMove}
                 isDisabled={isAiThinking || !apiKey || game.isGameOver()}
+                boardOrientation={playerSide}
               />
               
               {/* Кнопки управления */}
@@ -255,10 +399,17 @@ function App() {
                 </button>
                 <button
                   onClick={undoMove}
-                  disabled={isAiThinking || moveHistory.length < 2}
+                  disabled={isAiThinking || moveHistory.length === 0}
                   className="flex-1 bg-yellow-600 hover:bg-yellow-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white font-semibold py-3 px-6 rounded-lg transition-colors"
                 >
                   ↶ Отменить ход
+                </button>
+                <button
+                  onClick={switchSides}
+                  disabled={isAiThinking || game.history().length > 0}
+                  className="flex-1 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white font-semibold py-3 px-6 rounded-lg transition-colors"
+                >
+                  🔄 Поменять стороны
                 </button>
                 <button
                   onClick={() => setApiKey(null)}
@@ -279,6 +430,8 @@ function App() {
               moveHistory={moveHistory}
               error={error}
               onClearError={() => setError(null)}
+              playerSide={playerSide}
+              aiSide={aiSide}
             />
           </div>
         </div>
@@ -291,6 +444,14 @@ function App() {
             if (model) setSelectedModel(model);
             console.log('Выбрана модель:', model);
           }}
+        />
+
+        {/* Модальное окно превращения пешки */}
+        <PromotionModal
+          isOpen={showPromotionModal}
+          onSelect={handlePromotionSelect}
+          onCancel={handlePromotionCancel}
+          isWhite={playerSide === 'white'}
         />
       </div>
     </div>

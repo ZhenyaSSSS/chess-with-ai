@@ -6,7 +6,9 @@ function GameInfoPanel({
   aiStrategy, 
   moveHistory, 
   error, 
-  onClearError 
+  onClearError,
+  playerSide = 'white',
+  aiSide = 'black'
 }) {
   const getStatusIcon = () => {
     if (isAiThinking) return '🤖';
@@ -33,6 +35,27 @@ function GameInfoPanel({
 
   return (
     <div className="bg-white rounded-2xl shadow-2xl p-6 space-y-6">
+      {/* Информация о сторонах */}
+      <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl p-4">
+        <h3 className="font-semibold text-gray-900 mb-3 text-center">⚔️ Стороны</h3>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="text-center">
+            <div className="text-2xl mb-1">👤</div>
+            <div className="font-medium text-green-700">Вы</div>
+            <div className="text-sm text-gray-600 capitalize">
+              {playerSide === 'white' ? '♔ Белые' : '♚ Черные'}
+            </div>
+          </div>
+          <div className="text-center">
+            <div className="text-2xl mb-1">🤖</div>
+            <div className="font-medium text-purple-700">AI</div>
+            <div className="text-sm text-gray-600 capitalize">
+              {aiSide === 'white' ? '♔ Белые' : '♚ Черные'}
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Статус игры */}
       <div className="text-center">
         <div className={`game-status-indicator ${getStatusClass()} text-lg`}>

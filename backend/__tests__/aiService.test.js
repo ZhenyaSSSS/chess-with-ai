@@ -178,7 +178,8 @@ describe('AIService', () => {
       expect(result).toEqual({
         move: 'e4',
         newStrategy: 'Control center',
-        attempts: 1
+        attempts: 1,
+        model: 'gemini-2.5-pro-preview-05-06'
       });
       expect(GoogleGenerativeAI).toHaveBeenCalledWith(gameState.apiKey);
       expect(mockModel.generateContent).toHaveBeenCalledTimes(1);
@@ -213,7 +214,8 @@ describe('AIService', () => {
       expect(result).toEqual({
         move: 'e4',
         newStrategy: 'Finally!',
-        attempts: 2
+        attempts: 2,
+        model: 'gemini-2.5-pro-preview-05-06'
       });
       expect(mockModel.generateContent).toHaveBeenCalledTimes(2);
     });
@@ -238,7 +240,7 @@ describe('AIService', () => {
       mockModel.generateContent.mockRejectedValue(apiError);
 
       await expect(aiService.getAiMove(gameState))
-        .rejects.toThrow('AI_FAILED_TO_MOVE');
+        .rejects.toThrow('QUOTA_EXCEEDED');
     });
 
     it('должен обрабатывать ошибки парсинга JSON', async () => {
@@ -271,7 +273,7 @@ describe('AIService', () => {
       
       // Проверяем что была использована стратегия по умолчанию
       const callArgs = mockModel.generateContent.mock.calls[0][0];
-      expect(callArgs).toContain('I will play strategically to win this chess game');
+      expect(callArgs).toContain('Начинаю партию с фокусом на развитие фигур и контроль центра');
     });
   });
 }); 

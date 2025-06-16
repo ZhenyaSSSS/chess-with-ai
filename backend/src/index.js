@@ -121,7 +121,7 @@ app.post('/api/get-ai-move', async (req, res) => {
     const result = await aiService.getAiMove({
       fen,
       history: history || '',
-      strategy: strategy || 'I will play strategically to win this chess game.',
+      strategy: strategy || 'Начинаю партию с фокусом на развитие фигур и контроль центра. План: быстрое развитие, безопасность короля, затем тактические возможности.',
       apiKey,
       model: model || 'gemini-2.5-pro-preview-05-06'
     });

@@ -54,7 +54,8 @@ describe('Chess AI Backend API', () => {
         fen: validRequestBody.fen,
         history: validRequestBody.history,
         strategy: validRequestBody.strategy,
-        apiKey: validRequestBody.apiKey
+        apiKey: validRequestBody.apiKey,
+        model: 'gemini-2.5-pro-preview-05-06'
       });
     });
 
@@ -152,8 +153,9 @@ describe('Chess AI Backend API', () => {
       expect(aiService.getAiMove).toHaveBeenCalledWith({
         fen: minimalBody.fen,
         history: '',
-        strategy: 'I will play strategically to win this chess game.',
-        apiKey: minimalBody.apiKey
+        strategy: 'Начинаю партию с фокусом на развитие фигур и контроль центра. План: быстрое развитие, безопасность короля, затем тактические возможности.',
+        apiKey: minimalBody.apiKey,
+        model: 'gemini-2.5-pro-preview-05-06'
       });
     });
   });

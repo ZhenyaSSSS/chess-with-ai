@@ -7,7 +7,8 @@ function ChessboardComponent({
   selectedSquare,
   possibleMoves,
   lastMove,
-  isDisabled
+  isDisabled,
+  boardOrientation = "white"
 }) {
   // Создаем стили для подсветки клеток
   const customSquareStyles = {};
@@ -60,7 +61,7 @@ function ChessboardComponent({
         customLightSquareStyle={{
           backgroundColor: '#f0d9b5'
         }}
-        boardOrientation="white"
+        boardOrientation={boardOrientation}
         animationDuration={200}
         showBoardNotation={true}
         customNotationStyle={{
