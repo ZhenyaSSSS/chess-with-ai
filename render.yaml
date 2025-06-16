@@ -3,7 +3,7 @@ services:
     name: chess-with-ai
     env: node
     plan: free
-    buildCommand: npm run install:all && npm run build
+    buildCommand: npm install && cd backend && npm install && cd ../frontend && npm install && npm run build
     startCommand: npm run start:production
     envVars:
       - key: NODE_ENV
