@@ -1,0 +1,80 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+  
+  body {
+    margin: 0;
+    padding: 0;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+}
+
+@layer components {
+  .chess-square-light {
+    background-color: #f0d9b5;
+  }
+  
+  .chess-square-dark {
+    background-color: #b58863;
+  }
+  
+  .chess-square-highlighted {
+    box-shadow: inset 0 0 0 3px #20b2aa;
+  }
+  
+  .chess-square-selected {
+    background-color: #20b2aa !important;
+  }
+  
+  .chess-square-move-hint {
+    position: relative;
+  }
+  
+  .chess-square-move-hint::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 20%;
+    height: 20%;
+    background-color: #9bc53d;
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    opacity: 0.8;
+  }
+  
+  .modal-backdrop {
+    backdrop-filter: blur(8px);
+    background-color: rgba(0, 0, 0, 0.6);
+  }
+  
+  .game-status-indicator {
+    @apply inline-flex items-center px-3 py-1 rounded-full text-sm font-medium;
+  }
+  
+  .status-thinking {
+    @apply bg-yellow-100 text-yellow-800 animate-pulse;
+  }
+  
+  .status-your-turn {
+    @apply bg-green-100 text-green-800;
+  }
+  
+  .status-game-over {
+    @apply bg-red-100 text-red-800;
+  }
+  
+  .status-check {
+    @apply bg-red-100 text-red-800 animate-pulse;
+  }
+} 

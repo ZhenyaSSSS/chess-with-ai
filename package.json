@@ -1,0 +1,31 @@
+{
+  "name": "chess-with-ai",
+  "version": "1.0.0",
+  "description": "Chess game with Gemini AI opponent",
+  "main": "index.js",
+  "scripts": {
+    "dev": "concurrently \"npm run server:dev\" \"npm run client:dev\"",
+    "dev:network": "concurrently \"npm run server:dev\" \"npm run client:dev:network\"",
+    "server:dev": "cd backend && npm run dev",
+    "client:dev": "cd frontend && npm run dev",
+    "client:dev:network": "cd frontend && npm run dev -- --host 0.0.0.0",
+    "server:install": "cd backend && npm install",
+    "client:install": "cd frontend && npm install",
+    "install:all": "npm run server:install && npm run client:install",
+    "test": "npm run test:backend && npm run test:frontend",
+    "test:backend": "cd backend && npm test",
+    "test:frontend": "cd frontend && npm test",
+    "build": "cd frontend && npm run build",
+    "build:production": "NODE_ENV=production npm run build",
+    "start": "cd backend && npm start",
+    "start:production": "cd backend && NODE_ENV=production npm start",
+    "heroku-postbuild": "npm run install:all && npm run build",
+    "deploy:render": "npm run install:all && npm run build && npm run start:production"
+  },
+  "keywords": ["chess", "ai", "gemini", "react", "nodejs"],
+  "author": "Your Name",
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+} 
