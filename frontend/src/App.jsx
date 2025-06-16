@@ -198,8 +198,11 @@ function App() {
         return false;
       }
 
+      // Получаем новое FEN состояние
+      const newFen = game.fen();
+      
       // Ход валидный - обновляем состояние
-      setFen(game.fen());
+      setFen(newFen);
       setMoveHistory(prev => [...prev, {
         move: `${sourceSquare}${targetSquare}${promotion || ''}`,
         san: move.san,
@@ -212,7 +215,13 @@ function App() {
       setPossibleMoves([]);
       setError(null);
 
-      console.log('✅ Игрок сделал ход:', move.san);
+      console.log('✅ Игрок сделал ход:', move.san, 'Новое FEN:', newFen);
+      
+      // Дополнительная синхронизация для превращения пешки
+      if (promotion) {
+        console.log('🔄 Превращение пешки завершено в:', promotion.toUpperCase());
+      }
+      
       return true;
     } catch (error) {
       console.error('Ошибка при ходе игрока:', error);
@@ -223,6 +232,8 @@ function App() {
   // Обработчик выбора фигуры превращения
   const handlePromotionSelect = useCallback((promotionPiece) => {
     if (pendingPromotion) {
+      console.log('🎯 Игрок выбрал превращение в:', promotionPiece.toUpperCase());
+      
       const success = executeMove(
         pendingPromotion.from,
         pendingPromotion.to,
@@ -230,8 +241,13 @@ function App() {
       );
       
       if (success) {
+        // Очищаем состояние превращения
         setPendingPromotion(null);
         setShowPromotionModal(false);
+        console.log('✅ Превращение пешки успешно завершено');
+      } else {
+        console.error('❌ Ошибка превращения пешки');
+        setError('Ошибка при превращении пешки');
       }
     }
   }, [pendingPromotion, executeMove]);
@@ -244,7 +260,7 @@ function App() {
 
   // Обработчик хода игрока
   const onPieceDrop = useCallback((sourceSquare, targetSquare, piece) => {
-    if (isAiThinking || !apiKey || game.isGameOver() || !isPlayerTurn()) {
+    if (isAiThinking || !apiKey || game.isGameOver() || !isPlayerTurn() || showPromotionModal) {
       return false;
     }
 
@@ -256,19 +272,22 @@ function App() {
                         (movingPiece.color === 'b' && targetSquare[1] === '1'));
 
     if (isPromotion) {
-      // Сохраняем ход для превращения и показываем модальное окно
-      setPendingPromotion({ from: sourceSquare, to: targetSquare });
-      setShowPromotionModal(true);
+      // Предотвращаем двойное срабатывание
+      if (!showPromotionModal && !pendingPromotion) {
+        setPendingPromotion({ from: sourceSquare, to: targetSquare });
+        setShowPromotionModal(true);
+        console.log('🔄 Превращение пешки: показываем модальное окно');
+      }
       return false; // Ход еще не выполнен, ждем выбора фигуры
     }
 
     // Обычный ход (не превращение)
     return executeMove(sourceSquare, targetSquare);
-  }, [game, isAiThinking, apiKey, isPlayerTurn, executeMove]);
+  }, [game, isAiThinking, apiKey, isPlayerTurn, executeMove, showPromotionModal, pendingPromotion]);
 
   // Обработчик клика по клетке
   const onSquareClick = useCallback((square) => {
-    if (isAiThinking || !apiKey || game.isGameOver() || !isPlayerTurn()) {
+    if (isAiThinking || !apiKey || game.isGameOver() || !isPlayerTurn() || showPromotionModal) {
       return;
     }
 
@@ -276,9 +295,26 @@ function App() {
     if (selectedSquare && selectedSquare !== square) {
       const piece = game.get(selectedSquare);
       if (piece) {
-        const moveAttempted = onPieceDrop(selectedSquare, square, piece);
-        
-        if (moveAttempted) {
+        // Проверяем превращение пешки для клика (как в onPieceDrop)
+        const isPromotion = piece && 
+                           piece.type === 'p' && 
+                           ((piece.color === 'w' && square[1] === '8') || 
+                            (piece.color === 'b' && square[1] === '1'));
+
+        if (isPromotion) {
+          // Предотвращаем двойное срабатывание - проверяем, что модальное окно еще не показано
+          if (!showPromotionModal && !pendingPromotion) {
+            setPendingPromotion({ from: selectedSquare, to: square });
+            setShowPromotionModal(true);
+            setSelectedSquare(null);
+            setPossibleMoves([]);
+          }
+          return;
+        }
+
+        // Обычный ход
+        const moveSuccess = executeMove(selectedSquare, square);
+        if (moveSuccess) {
           return; // Ход сделан
         }
       }
@@ -299,7 +335,7 @@ function App() {
         setPossibleMoves([]);
       }
     }
-  }, [selectedSquare, onPieceDrop, game, isAiThinking, apiKey, isPlayerTurn]);
+  }, [selectedSquare, game, isAiThinking, apiKey, isPlayerTurn, showPromotionModal, pendingPromotion, executeMove]);
 
   // + Функция смены сторон
   const switchSides = useCallback(() => {
