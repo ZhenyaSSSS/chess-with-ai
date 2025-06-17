@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useSettings } from '../../../context/SettingsContext';
-import useChessGame from '../../../hooks/useChessGame';
+import { useChessGameV2 as useChessGame } from '../../../hooks/useChessGameV2';
 import ChessboardComponent from '../../ChessboardComponent';
 import GameInfoPanel from '../../GameInfoPanel';
 import ApiKeyModal from '../../ApiKeyModal';
@@ -20,31 +20,24 @@ function ChessGame() {
 
   const [showDebugConsole, setShowDebugConsole] = useState(false);
 
-  // Используем старый, стабильный хук для шахматной логики
+  // Используем НОВЫЙ хук. Деструктуризация обновлена под новый контракт.
   const {
     fen,
     gameStatus,
     isAiThinking,
     error,
     moveHistory,
-    aiStrategy,
     selectedSquare,
     possibleMoves,
     lastMove,
     playerSide,
     aiSide,
     showPromotionModal,
-    onPieceDrop,
     onSquareClick,
-    startNewGame,
+    handlePromotion,
+    resetGame,
     undoMove,
-    switchSides,
-    clearError,
-    handlePromotionSelect,
-    handlePromotionCancel,
-    isGameOver,
-    canUndo,
-    canSwitchSides
+    changeSides,
   } = useChessGame(apiKey, selectedModel);
 
   return (
@@ -67,33 +60,33 @@ function ChessGame() {
             <div className="bg-white rounded-2xl shadow-2xl p-6">
               <ChessboardComponent
                 fen={fen}
-                onPieceDrop={onPieceDrop}
+                onPieceDrop={onSquareClick}
                 onSquareClick={onSquareClick}
                 selectedSquare={selectedSquare}
                 possibleMoves={possibleMoves}
                 lastMove={lastMove}
-                isDisabled={isAiThinking || !apiKey || isGameOver}
+                isDisabled={isAiThinking || !apiKey}
                 boardOrientation={playerSide}
               />
               
               {/* Кнопки управления */}
               <div className="flex flex-wrap gap-3 mt-6">
                 <button
-                  onClick={startNewGame}
+                  onClick={resetGame}
                   className="flex-1 bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors"
                 >
                   🔄 Новая игра
                 </button>
                 <button
                   onClick={undoMove}
-                  disabled={!canUndo}
+                  disabled={isAiThinking || moveHistory.length === 0}
                   className="flex-1 bg-yellow-600 hover:bg-yellow-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white font-semibold py-3 px-6 rounded-lg transition-colors"
                 >
                   ↶ Отменить ход
                 </button>
                 <button
-                  onClick={switchSides}
-                  disabled={!canSwitchSides}
+                  onClick={changeSides}
+                  disabled={isAiThinking || moveHistory.length > 0}
                   className="flex-1 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white font-semibold py-3 px-6 rounded-lg transition-colors"
                 >
                   🔄 Поменять стороны
@@ -122,10 +115,10 @@ function ChessGame() {
             <GameInfoPanel
               gameStatus={gameStatus}
               isAiThinking={isAiThinking}
-              aiStrategy={aiStrategy}
+              aiStrategy={null}
               moveHistory={moveHistory}
               error={error}
-              onClearError={clearError}
+              onClearError={() => {}}
               playerSide={playerSide}
               aiSide={aiSide}
             />
@@ -145,8 +138,8 @@ function ChessGame() {
         {/* Модальное окно превращения пешки */}
         <PromotionModal
           isOpen={showPromotionModal}
-          onSelect={handlePromotionSelect}
-          onCancel={handlePromotionCancel}
+          onSelect={handlePromotion}
+          onCancel={() => {}}
           isWhite={playerSide === 'white'}
         />
 
