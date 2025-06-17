@@ -1,4 +1,5 @@
-import { Clock, Brain, History, AlertCircle, X } from 'lucide-react'
+import { Clock, Brain, History, AlertCircle, X, ChevronDown, ChevronUp, MessageSquare } from 'lucide-react'
+import { useState } from 'react'
 
 function GameInfoPanel({ 
   gameStatus, 
@@ -10,6 +11,23 @@ function GameInfoPanel({
   playerSide = 'white',
   aiSide = 'black'
 }) {
+  const [showStrategy, setShowStrategy] = useState(false);
+  const [expandedMoves, setExpandedMoves] = useState(new Set());
+
+  // Отладочное логирование
+  console.log('🎯 GameInfoPanel получил moveHistory:', moveHistory);
+  console.log('🎯 AI ходы с reasoning:', moveHistory.filter(m => m.player === 'AI' && m.reasoning));
+  
+  // Детальный анализ последнего хода AI
+  const lastAiMove = moveHistory.filter(m => m.player === 'AI').slice(-1)[0];
+  if (lastAiMove) {
+    console.log('🎯 Последний ход AI:', {
+      san: lastAiMove.san,
+      hasReasoning: !!lastAiMove.reasoning,
+      reasoning: lastAiMove.reasoning,
+      reasoningLength: lastAiMove.reasoning ? lastAiMove.reasoning.length : 0
+    });
+  }
   const getStatusIcon = () => {
     if (isAiThinking) return '🤖';
     if (gameStatus.includes('Мат')) return '🏆';
@@ -31,6 +49,16 @@ function GameInfoPanel({
       minute: '2-digit',
       second: '2-digit'
     });
+  };
+
+  const toggleMoveExpansion = (index) => {
+    const newExpanded = new Set(expandedMoves);
+    if (newExpanded.has(index)) {
+      newExpanded.delete(index);
+    } else {
+      newExpanded.add(index);
+    }
+    setExpandedMoves(newExpanded);
   };
 
   return (
@@ -82,19 +110,48 @@ function GameInfoPanel({
         </div>
       )}
 
+      {/* Последнее объяснение AI */}
+      {(() => {
+        const lastAiMove = moveHistory.filter(m => m.player === 'AI' && m.reasoning).slice(-1)[0];
+        return lastAiMove && (
+          <div className="bg-purple-50 rounded-xl p-4">
+            <div className="flex items-center mb-3">
+              <MessageSquare className="h-5 w-5 text-purple-600 mr-2" />
+              <h3 className="font-semibold text-purple-900">Последнее объяснение AI</h3>
+              <span className="ml-2 text-xs text-purple-600 bg-purple-200 px-2 py-1 rounded-full">
+                {lastAiMove.san}
+              </span>
+            </div>
+            <p className="text-purple-800 text-sm leading-relaxed">
+              {lastAiMove.reasoning}
+            </p>
+          </div>
+        );
+      })()}
+
       {/* Стратегия AI */}
       <div className="bg-blue-50 rounded-xl p-4">
-        <div className="flex items-center mb-3">
-          <Brain className="h-5 w-5 text-blue-600 mr-2" />
-          <h3 className="font-semibold text-blue-900">Стратегия AI</h3>
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center">
+            <Brain className="h-5 w-5 text-blue-600 mr-2" />
+            <h3 className="font-semibold text-blue-900">Стратегия AI</h3>
+          </div>
+          <button
+            onClick={() => setShowStrategy(!showStrategy)}
+            className="text-blue-600 hover:text-blue-800 transition-colors"
+          >
+            {showStrategy ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </button>
         </div>
-        <p className="text-blue-800 text-sm leading-relaxed">
-          {isAiThinking ? (
-            <span className="animate-pulse">🤔 Размышляю над следующим ходом...</span>
-          ) : (
-            aiStrategy
-          )}
-        </p>
+        {showStrategy && (
+          <p className="text-blue-800 text-sm leading-relaxed">
+            {isAiThinking ? (
+              <span className="animate-pulse">🤔 Размышляю над следующим ходом...</span>
+            ) : (
+              aiStrategy
+            )}
+          </p>
+        )}
       </div>
 
       {/* История ходов */}
@@ -114,29 +171,52 @@ function GameInfoPanel({
             </p>
           ) : (
             moveHistory.map((move, index) => (
-              <div
-                key={index}
-                className="flex items-center justify-between p-2 bg-white rounded-lg text-sm"
-              >
-                <div className="flex items-center">
-                  <span className="font-mono bg-gray-100 text-gray-800 px-2 py-1 rounded text-xs mr-3">
-                    {Math.floor(index / 2) + 1}{index % 2 === 0 ? '.' : '...'}
-                  </span>
-                  <span className="font-medium">
-                    {move.san}
-                  </span>
+              <div key={index} className="bg-white rounded-lg text-sm">
+                <div className="flex items-center justify-between p-2">
+                  <div className="flex items-center">
+                    <span className="font-mono bg-gray-100 text-gray-800 px-2 py-1 rounded text-xs mr-3">
+                      {Math.floor(index / 2) + 1}{index % 2 === 0 ? '.' : '...'}
+                    </span>
+                    <span className="font-medium">
+                      {move.san}
+                    </span>
+                  </div>
+                  <div className="flex items-center text-xs text-gray-500">
+                    <span className={`px-2 py-1 rounded-full mr-2 ${
+                      move.player === 'AI' 
+                        ? 'bg-purple-100 text-purple-700' 
+                        : 'bg-green-100 text-green-700'
+                    }`}>
+                      {move.player === 'AI' ? '🤖' : '👤'}
+                    </span>
+                    {move.player === 'AI' && move.reasoning && (
+                      <button
+                        onClick={() => toggleMoveExpansion(index)}
+                        className="text-blue-500 hover:text-blue-700 mr-2"
+                        title="Показать объяснение"
+                      >
+                        <MessageSquare className="h-3 w-3" />
+                      </button>
+                    )}
+                    <Clock className="h-3 w-3 mr-1" />
+                    {formatTime(move.timestamp)}
+                  </div>
                 </div>
-                <div className="flex items-center text-xs text-gray-500">
-                  <span className={`px-2 py-1 rounded-full mr-2 ${
-                    move.player === 'AI' 
-                      ? 'bg-purple-100 text-purple-700' 
-                      : 'bg-green-100 text-green-700'
-                  }`}>
-                    {move.player === 'AI' ? '🤖' : '👤'}
-                  </span>
-                  <Clock className="h-3 w-3 mr-1" />
-                  {formatTime(move.timestamp)}
-                </div>
+                
+                {/* Объяснение хода AI */}
+                {move.player === 'AI' && move.reasoning && expandedMoves.has(index) && (
+                  <div className="px-2 pb-2">
+                    <div className="bg-purple-50 border-l-4 border-purple-200 p-3 rounded-r-lg">
+                      <div className="flex items-start">
+                        <MessageSquare className="h-4 w-4 text-purple-600 mr-2 mt-0.5 flex-shrink-0" />
+                        <div className="text-xs text-purple-800">
+                          <div className="font-medium mb-1">💭 Объяснение AI:</div>
+                          <div className="leading-relaxed">{move.reasoning}</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             ))
           )}

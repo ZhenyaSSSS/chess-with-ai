@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Universal Game API</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        .section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
+        .response { background: #f5f5f5; padding: 10px; border-radius: 3px; white-space: pre-wrap; }
+        button { padding: 10px 15px; margin: 5px; background: #007bff; color: white; border: none; border-radius: 3px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        .error { background: #f8d7da; color: #721c24; }
+        .success { background: #d4edda; color: #155724; }
+        input { padding: 8px; margin: 5px; border: 1px solid #ddd; border-radius: 3px; }
+        .board { display: grid; grid-template-columns: repeat(3, 50px); gap: 2px; margin: 10px 0; }
+        .cell { width: 50px; height: 50px; border: 1px solid #333; display: flex; align-items: center; justify-content: center; font-size: 24px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎮 Universal Game API Test</h1>
+        
+        <div class="section">
+            <h2>1. Список поддерживаемых игр</h2>
+            <button onclick="getSupportedGames()">Получить список игр</button>
+            <div id="games-response" class="response"></div>
+        </div>
+
+        <div class="section">
+            <h2>2. Создание игровых сессий</h2>
+            <button onclick="createChessSession()">Создать шахматную партию</button>
+            <button onclick="createTicTacToeSession()">Создать крестики-нолики</button>
+            <div id="session-response" class="response"></div>
+        </div>
+
+        <div class="section">
+            <h2>3. Управление сессией</h2>
+            <input type="text" id="sessionId" placeholder="Session ID" style="width: 300px;">
+            <br>
+            <button onclick="getSessionState()">Получить состояние</button>
+            <button onclick="deleteSession()">Удалить сессию</button>
+            <div id="session-state-response" class="response"></div>
+        </div>
+
+        <div class="section">
+            <h2>4. Шахматы - тестирование ходов</h2>
+            <button onclick="makeChessMove()">Сделать ход e2-e4</button>
+            <div id="chess-response" class="response"></div>
+        </div>
+
+        <div class="section">
+            <h2>5. Крестики-нолики - тестирование</h2>
+            <div id="tictactoe-board" class="board">
+                <div class="cell" onclick="makeTicTacToeMove(0,0)"></div>
+                <div class="cell" onclick="makeTicTacToeMove(0,1)"></div>
+                <div class="cell" onclick="makeTicTacToeMove(0,2)"></div>
+                <div class="cell" onclick="makeTicTacToeMove(1,0)"></div>
+                <div class="cell" onclick="makeTicTacToeMove(1,1)"></div>
+                <div class="cell" onclick="makeTicTacToeMove(1,2)"></div>
+                <div class="cell" onclick="makeTicTacToeMove(2,0)"></div>
+                <div class="cell" onclick="makeTicTacToeMove(2,1)"></div>
+                <div class="cell" onclick="makeTicTacToeMove(2,2)"></div>
+            </div>
+            <div id="tictactoe-response" class="response"></div>
+        </div>
+
+        <div class="section">
+            <h2>6. AI тестирование</h2>
+            <input type="password" id="apiKey" placeholder="Google API Key" style="width: 300px;">
+            <br>
+            <button onclick="createChessForAI()">Создать шахматы для AI теста</button>
+            <button onclick="makeChessMoveForAI()">Сделать ход e2-e4</button>
+            <button onclick="testAI()">Получить ход AI</button>
+            <div id="ai-response" class="response"></div>
+        </div>
+    </div>
+
+    <script>
+        let currentSessionId = null;
+        let currentTicTacToeSession = null;
+
+        const API_BASE = 'http://localhost:3001/api';
+
+        function displayResponse(elementId, data, isError = false) {
+            const element = document.getElementById(elementId);
+            element.className = `response ${isError ? 'error' : 'success'}`;
+            element.textContent = JSON.stringify(data, null, 2);
+        }
+
+        async function apiCall(url, options = {}) {
+            try {
+                const response = await fetch(`${API_BASE}${url}`, {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...options.headers
+                    },
+                    ...options
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+                }
+                
+                return await response.json();
+            } catch (error) {
+                console.error('API Error:', error);
+                throw error;
+            }
+        }
+
+        async function getSupportedGames() {
+            try {
+                const data = await apiCall('/games');
+                displayResponse('games-response', data);
+            } catch (error) {
+                displayResponse('games-response', { error: error.message }, true);
+            }
+        }
+
+        async function createChessSession() {
+            try {
+                const data = await apiCall('/games/chess/sessions', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        playerConfig: { name: 'Test Player', side: 'white' },
+                        aiConfig: { difficulty: 'medium' }
+                    })
+                });
+                currentSessionId = data.sessionId;
+                document.getElementById('sessionId').value = currentSessionId;
+                displayResponse('session-response', data);
+            } catch (error) {
+                displayResponse('session-response', { error: error.message }, true);
+            }
+        }
+
+        async function createTicTacToeSession() {
+            try {
+                const data = await apiCall('/games/tictactoe/sessions', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        playerConfig: { name: 'Test Player', symbol: 'x' },
+                        aiConfig: { difficulty: 'medium' }
+                    })
+                });
+                currentTicTacToeSession = data.sessionId;
+                displayResponse('session-response', data);
+                updateTicTacToeBoard(data.gameState.board);
+            } catch (error) {
+                displayResponse('session-response', { error: error.message }, true);
+            }
+        }
+
+        async function getSessionState() {
+            const sessionId = document.getElementById('sessionId').value;
+            if (!sessionId) {
+                displayResponse('session-state-response', { error: 'Введите Session ID' }, true);
+                return;
+            }
+
+            try {
+                const data = await apiCall(`/sessions/${sessionId}`);
+                displayResponse('session-state-response', data);
+            } catch (error) {
+                displayResponse('session-state-response', { error: error.message }, true);
+            }
+        }
+
+        async function deleteSession() {
+            const sessionId = document.getElementById('sessionId').value;
+            if (!sessionId) {
+                displayResponse('session-state-response', { error: 'Введите Session ID' }, true);
+                return;
+            }
+
+            try {
+                const data = await apiCall(`/sessions/${sessionId}`, { method: 'DELETE' });
+                displayResponse('session-state-response', data);
+            } catch (error) {
+                displayResponse('session-state-response', { error: error.message }, true);
+            }
+        }
+
+        async function makeChessMove() {
+            if (!currentSessionId) {
+                displayResponse('chess-response', { error: 'Сначала создайте шахматную сессию' }, true);
+                return;
+            }
+
+            try {
+                // Используем текущую chess сессию, проверим что это шахматы
+                const sessionData = await apiCall(`/sessions/${currentSessionId}`);
+                
+                const data = await apiCall(`/sessions/${currentSessionId}/moves`, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        move: { from: 'e2', to: 'e4' }
+                    })
+                });
+                displayResponse('chess-response', data);
+            } catch (error) {
+                displayResponse('chess-response', { error: error.message }, true);
+            }
+        }
+
+        async function makeTicTacToeMove(row, col) {
+            if (!currentTicTacToeSession) {
+                displayResponse('tictactoe-response', { error: 'Сначала создайте сессию крестиков-ноликов' }, true);
+                return;
+            }
+
+            try {
+                const data = await apiCall(`/sessions/${currentTicTacToeSession}/moves`, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        move: { row, col }
+                    })
+                });
+                displayResponse('tictactoe-response', data);
+                if (data.gameState) {
+                    updateTicTacToeBoard(data.gameState.board);
+                }
+            } catch (error) {
+                displayResponse('tictactoe-response', { error: error.message }, true);
+            }
+        }
+
+        function updateTicTacToeBoard(board) {
+            const cells = document.querySelectorAll('#tictactoe-board .cell');
+            for (let i = 0; i < 3; i++) {
+                for (let j = 0; j < 3; j++) {
+                    const cellIndex = i * 3 + j;
+                    cells[cellIndex].textContent = board[i][j] || '';
+                }
+            }
+        }
+
+        let chessSessionForAI = null;
+
+        async function createChessForAI() {
+            try {
+                const data = await apiCall('/games/chess/sessions', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        playerConfig: { name: 'AI Test Player', side: 'white' },
+                        aiConfig: { difficulty: 'medium' }
+                    })
+                });
+                chessSessionForAI = data.sessionId;
+                displayResponse('ai-response', { message: 'Шахматная сессия для AI создана', sessionId: chessSessionForAI, gameState: data.gameState });
+            } catch (error) {
+                displayResponse('ai-response', { error: error.message }, true);
+            }
+        }
+
+        async function makeChessMoveForAI() {
+            if (!chessSessionForAI) {
+                displayResponse('ai-response', { error: 'Сначала создайте шахматную сессию для AI' }, true);
+                return;
+            }
+
+            try {
+                const data = await apiCall(`/sessions/${chessSessionForAI}/moves`, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        move: { from: 'e2', to: 'e4' }
+                    })
+                });
+                displayResponse('ai-response', { message: 'Ход e2-e4 сделан', result: data });
+            } catch (error) {
+                displayResponse('ai-response', { error: error.message }, true);
+            }
+        }
+
+        async function testAI() {
+            const apiKey = document.getElementById('apiKey').value;
+            if (!apiKey) {
+                displayResponse('ai-response', { error: 'Введите API ключ' }, true);
+                return;
+            }
+
+            if (!chessSessionForAI) {
+                displayResponse('ai-response', { error: 'Сначала создайте шахматную сессию и сделайте ход' }, true);
+                return;
+            }
+
+            try {
+                const data = await apiCall(`/sessions/${chessSessionForAI}/ai-move`, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        apiKey: apiKey,
+                        model: 'gemini-2.5-pro-preview-05-06',
+                        difficulty: 'medium'
+                    })
+                });
+                displayResponse('ai-response', data);
+            } catch (error) {
+                displayResponse('ai-response', { error: error.message }, true);
+            }
+        }
+    </script>
+</body>
+</html> 

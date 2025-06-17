@@ -6,26 +6,31 @@ const path = require('path');
 
 const aiService = require('./services/aiService');
 
+// Инициализируем GameManager с обработкой ошибок
+let GameManager;
+try {
+  console.log('🔧 Инициализация GameManager...');
+  GameManager = require('./managers/GameManager');
+  console.log('✅ GameManager успешно инициализирован');
+} catch (error) {
+  console.error('❌ Ошибка инициализации GameManager:', error);
+  // Создаем заглушку
+  GameManager = {
+    getSupportedGames: () => ['chess', 'tictactoe'],
+    createGameSession: () => { throw new Error('GameManager не инициализирован'); },
+    getGameSession: () => null
+  };
+}
+
 const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Middleware для безопасности
 app.use(helmet());
+// Временно отключаем CORS для тестирования
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production' 
-    ? ['https://your-domain.com'] 
-    : [
-        'http://localhost:5173', 
-        'http://localhost:3000',
-        // Разрешаем любые локальные IP в dev режиме
-        /^http:\/\/192\.168\.\d+\.\d+:5173$/,
-        /^http:\/\/10\.\d+\.\d+\.\d+:5173$/,
-        /^http:\/\/172\.(1[6-9]|2\d|3[01])\.\d+\.\d+:5173$/,
-        // Дополнительные паттерны для разных сетевых интерфейсов
-        /^http:\/\/100\.\d+\.\d+\.\d+:5173$/,  // Для CGNAT (как 100.64.17.11)
-        /^http:\/\/169\.254\.\d+\.\d+:5173$/   // Link-local адреса
-      ],
-  credentials: true // Разрешаем cookies и авторизацию
+  origin: true, // Разрешаем все источники для тестирования
+  credentials: true
 }));
 
 // Rate limiting для защиты от злоупотреблений
@@ -55,10 +60,52 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Эндпоинт для смены версии API
+app.post('/api/set-api-version', (req, res) => {
+  try {
+    const { version } = req.body;
+    console.log('Запрос на смену версии API:', version);
+    
+    aiService.setApiVersion(version);
+    
+    res.json({ 
+      success: true, 
+      version: version,
+      message: `API версия изменена на ${version}`
+    });
+  } catch (error) {
+    console.error('Ошибка смены версии API:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+// Эндпоинт для получения текущей версии API
+app.get('/api/get-api-version', (req, res) => {
+  try {
+    const currentVersion = aiService.currentApiVersion;
+    const availableVersions = Object.keys(aiService.apiVersions);
+    
+    res.json({ 
+      currentVersion,
+      availableVersions,
+      baseUrl: aiService.getApiBaseUrl()
+    });
+
+  } catch (error) {
+    console.error('Ошибка при получении версии API:', error);
+    res.status(500).json({ 
+      error: 'Internal server error. Please try again.' 
+    });
+  }
+});
+
 // Эндпоинт для получения списка доступных моделей
 app.post('/api/get-models', async (req, res) => {
   try {
-    const { apiKey } = req.body;
+    const { apiKey, apiVersion } = req.body;
 
     if (!apiKey || typeof apiKey !== 'string') {
       return res.status(400).json({ 
@@ -67,10 +114,11 @@ app.post('/api/get-models', async (req, res) => {
     }
 
     console.log('Получен запрос на список моделей:', {
-      apiKeyLength: apiKey.length
+      apiKeyLength: apiKey.length,
+      apiVersion: apiVersion || 'default'
     });
 
-    const models = await aiService.getAvailableModels(apiKey);
+    const models = await aiService.getAvailableModels(apiKey, apiVersion);
 
     console.log(`Найдено ${models.length} моделей, доступных: ${models.filter(m => m.available).length}`);
 
@@ -157,6 +205,232 @@ app.post('/api/get-ai-move', async (req, res) => {
     });
   }
 });
+
+// ========== НОВЫЕ API РОУТЫ ДЛЯ УНИВЕРСАЛЬНОЙ ИГРОВОЙ СИСТЕМЫ ==========
+
+// Получить список поддерживаемых игр
+app.get('/api/games', (req, res) => {
+  try {
+    console.log('🎮 Запрос списка поддерживаемых игр...');
+    const supportedGames = GameManager.getSupportedGames();
+    console.log('✅ Получены игры:', supportedGames);
+    res.json({ games: supportedGames });
+  } catch (error) {
+    console.error('❌ Ошибка получения списка игр:', error);
+    // Fallback - возвращаем статический список
+    res.json({ 
+      games: ['chess', 'tictactoe'],
+      fallback: true, 
+      error: error.message 
+    });
+  }
+});
+
+// Создать новую игровую сессию
+app.post('/api/games/:gameType/sessions', (req, res) => {
+  try {
+    const { gameType } = req.params;
+    const { playerConfig, aiConfig } = req.body;
+
+    console.log(`Создание сессии для игры: ${gameType}`, { playerConfig, aiConfig });
+
+    const sessionResult = GameManager.createGameSession(gameType, {
+      playerConfig,
+      aiConfig
+    });
+
+    const sessionId = sessionResult.gameId;
+    const gameState = sessionResult.gameState;
+
+    res.json({
+      sessionId,
+      gameState,
+      gameType
+    });
+
+  } catch (error) {
+    console.error('Ошибка создания игровой сессии:', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Получить состояние игровой сессии
+app.get('/api/sessions/:sessionId', (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const session = GameManager.getGameSession(sessionId);
+    const gameState = session ? session.gameState : null;
+
+    if (!gameState) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    res.json({ sessionId, gameState });
+
+  } catch (error) {
+    console.error('Ошибка получения состояния сессии:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Сделать ход игрока
+app.post('/api/sessions/:sessionId/moves', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const { move } = req.body;
+
+    console.log(`Ход игрока в сессии ${sessionId}:`, move);
+
+    const result = await GameManager.makeMove(sessionId, move, 'human');
+
+    res.json(result);
+
+  } catch (error) {
+    console.error('Ошибка выполнения хода:', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Получить ход AI
+app.post('/api/sessions/:sessionId/ai-move', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const { apiKey, model, strategy, aiSide } = req.body;
+
+    console.log(`Запрос хода AI для сессии ${sessionId}:`, {
+      model: model || 'не указана',
+      hasStrategy: !!strategy,
+      aiSide: aiSide || 'не указана'
+    });
+
+    // Пока что используем старый AI сервис для совместимости
+    const session = GameManager.getGameSession(sessionId);
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    const result = await aiService.getAiMove({
+      fen: session.gameState.fen,
+      strategy: strategy || 'Играю в шахматы с фокусом на развитие и тактику.',
+      apiKey,
+      model: model || 'gemini-2.5-pro-preview-05-06',
+      aiSide: aiSide || 'black'
+    });
+
+    // Обновляем состояние сессии
+    // TODO: интегрировать с GameManager полностью
+
+    res.json(result);
+
+  } catch (error) {
+    console.error('Ошибка получения хода AI:', error);
+    
+    if (error.message.includes('API_KEY_INVALID')) {
+      return res.status(401).json({ error: 'Invalid API key' });
+    }
+    
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Удалить игровую сессию
+app.delete('/api/sessions/:sessionId', (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    
+    const success = GameManager.removeGameSession(sessionId);
+    
+    if (!success) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    res.json({ message: 'Session deleted successfully' });
+
+  } catch (error) {
+    console.error('Ошибка удаления сессии:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Получить аналитику игры (для конкретных игр)
+app.get('/api/sessions/:sessionId/analysis', (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const session = GameManager.getGameSession(sessionId);
+    const analysis = session ? session.gameEngine.getGameAnalysis(session.gameState) : null;
+
+    if (!analysis) {
+      return res.status(404).json({ error: 'Session not found or analysis not available' });
+    }
+
+    res.json({ sessionId, analysis });
+
+  } catch (error) {
+    console.error('Ошибка получения аналитики:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// === ОТЛАДКА AI ===
+
+// Включить/выключить режим отладки
+app.post('/api/debug/toggle', (req, res) => {
+  try {
+    const { enabled } = req.body;
+    aiService.setDebugMode(enabled);
+    
+    res.json({ 
+      success: true, 
+      debugMode: enabled,
+      message: enabled ? 'Режим отладки включен' : 'Режим отладки выключен'
+    });
+  } catch (error) {
+    console.error('Ошибка переключения режима отладки:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+// Получить логи отладки
+app.get('/api/debug/logs', (req, res) => {
+  try {
+    const logs = aiService.getDebugLogs();
+    
+    res.json({ 
+      success: true, 
+      logs,
+      count: logs.length
+    });
+  } catch (error) {
+    console.error('Ошибка получения логов отладки:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+// Очистить логи отладки
+app.delete('/api/debug/logs', (req, res) => {
+  try {
+    aiService.clearDebugLogs();
+    
+    res.json({ 
+      success: true, 
+      message: 'Логи отладки очищены'
+    });
+  } catch (error) {
+    console.error('Ошибка очистки логов отладки:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+// ========== КОНЕЦ НОВЫХ API РОУТОВ ==========
 
 // Обслуживание статических файлов в продакшене
 if (process.env.NODE_ENV === 'production') {

@@ -37,6 +37,13 @@ if (import.meta.env.DEV) {
 }
 
 class GameService {
+  constructor() {
+    // Vite использует import.meta.env.DEV для определения режима разработки
+    this.baseUrl = import.meta.env.DEV
+      ? 'http://localhost:3001'
+      : '';
+  }
+
   /**
    * Получает ход от AI
    * @param {Object} gameData - Данные игры
@@ -86,43 +93,28 @@ class GameService {
   /**
    * Получает список доступных моделей Gemini
    * @param {string} apiKey - API ключ Gemini
+   * @param {string} apiVersion - Версия API (опционально)
    * @returns {Promise<Array>} Список моделей
    */
-  async getAvailableModels(apiKey) {
+  async getAvailableModels(apiKey, apiVersion = 'v1beta') {
     try {
-      const response = await api.post('/get-models', { apiKey });
-      return response.data.models || [];
+      const response = await fetch(`${this.baseUrl}/api/get-models`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ apiKey, apiVersion })
+      });
 
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return data.models || [];
     } catch (error) {
-      console.error('Models API Error:', error);
-      
-      // Возвращаем базовый список моделей в случае ошибки
-      return [
-        {
-          id: 'gemini-2.5-pro-preview-05-06',
-          name: 'Gemini 2.5 Pro Preview 05-06',
-          description: 'Лучшая версия 2.5 Pro (стабильная)',
-          available: true
-        },
-        {
-          id: 'gemini-2.5-pro-preview-06-05',
-          name: 'Gemini 2.5 Pro Preview 06-05',
-          description: 'Новая версия (могут быть проблемы)',
-          available: true
-        },
-        {
-          id: 'gemini-2.5-flash-preview-05-20',
-          name: 'Gemini 2.5 Flash Preview',
-          description: 'Быстрая модель Gemini 2.5',
-          available: true
-        },
-        {
-          id: 'gemini-1.5-pro',
-          name: 'Gemini 1.5 Pro (Legacy)',
-          description: 'Устаревшая, но стабильная',
-          available: true
-        }
-      ];
+      console.error('Ошибка получения моделей:', error);
+      throw error;
     }
   }
 
@@ -137,6 +129,83 @@ class GameService {
     } catch (error) {
       console.error('Health check failed:', error);
       throw new Error('Сервер недоступен');
+    }
+  }
+
+  async setApiVersion(version) {
+    try {
+      const response = await fetch('/api/set-api-version', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ version })
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Ошибка смены версии API:', error);
+      throw error;
+    }
+  }
+
+  // === ОТЛАДКА AI ===
+
+  async toggleDebugMode(enabled) {
+    try {
+      const response = await fetch('/api/debug/toggle', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ enabled })
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Ошибка переключения режима отладки:', error);
+      throw error;
+    }
+  }
+
+  async getDebugLogs() {
+    try {
+      const response = await fetch('/api/debug/logs');
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return data.logs || [];
+    } catch (error) {
+      console.error('Ошибка получения логов отладки:', error);
+      throw error;
+    }
+  }
+
+  async clearDebugLogs() {
+    try {
+      const response = await fetch('/api/debug/logs', {
+        method: 'DELETE'
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Ошибка очистки логов отладки:', error);
+      throw error;
     }
   }
 }

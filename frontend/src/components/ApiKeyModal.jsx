@@ -181,7 +181,6 @@ function ApiKeyModal({ isOpen, onApiKeySubmit }) {
                  <option 
                    key={model.id} 
                    value={model.id}
-                   disabled={!model.available}
                  >
                    {model.name} {!model.available ? '(Недоступно)' : ''} 
                    {model.available && model.version === '2.5' ? ' ⚡ Новая' : ''}

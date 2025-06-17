@@ -1,38 +1,52 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-const { Chess } = require('chess.js');
 
 // Добавляем поддержку fetch для старых версий Node.js
 if (!globalThis.fetch) {
   globalThis.fetch = require('node-fetch');
 }
 
+/**
+ * Универсальный AI сервис для любых игр
+ * Не содержит игрово-специфичной логики
+ */
 class AIService {
   constructor() {
-    this.maxAttempts = 3;
-    this.defaultStrategy = 'Начинаю партию с фокусом на развитие фигур и контроль центра. План: быстрое развитие, безопасность короля, затем тактические возможности.';
-    // Актуальные модели Gemini 2.5 (бета API)
+    this.maxAttempts = 5; // Увеличиваем базовое количество попыток
+    this.cacheTimeout = 30 * 60 * 1000; // 30 минут
+    this.modelAvailabilityCache = new Map();
+    
+    // Отладочные логи
+    this.debugLogs = [];
+    this.debugMode = false;
+    
+    // Известные проблемные модели
+    this.knownProblematicModels = new Set([
+      'gemini-2.5-flash-preview-tts',
+      'gemini-2.5-pro-preview-tts'
+    ]);
+    
+    // Поддерживаемые версии API
+    this.apiVersions = {
+      'v1': 'https://generativelanguage.googleapis.com/v1',
+      'v1beta': 'https://generativelanguage.googleapis.com/v1beta',
+      'v2': 'https://generativelanguage.googleapis.com/v2',
+      'demo': 'https://generativelanguage.googleapis.com/v1beta' // Demo использует v1beta
+    };
+    
+    // Текущая версия API (по умолчанию)
+    this.currentApiVersion = 'v1beta';
+    
+    // Актуальные модели Gemini
     this.availableModels = {
-      'gemini-2.5-pro-preview-06-05': {
-        name: 'Gemini 2.5 Pro Preview',
-        description: 'Новейшая и самая мощная модель Gemini',
-        maxTokens: 2048,
-        temperature: 0.7
-      },
       'gemini-2.5-pro-preview-05-06': {
         name: 'Gemini 2.5 Pro Preview 05-06',
-        description: 'Альтернативная версия 2.5 Pro',
+        description: 'Рекомендуемая стабильная версия 2.5 Pro',
         maxTokens: 2048,
         temperature: 0.7
       },
       'gemini-2.5-flash-preview-05-20': {
         name: 'Gemini 2.5 Flash Preview 05-20',
         description: 'Быстрая модель Gemini 2.5',
-        maxTokens: 1024,
-        temperature: 0.7
-      },
-      'gemini-2.5-flash-preview-04-17': {
-        name: 'Gemini 2.5 Flash Preview 04-17',
-        description: 'Старая версия Flash 2.5',
         maxTokens: 1024,
         temperature: 0.7
       },
@@ -51,195 +65,915 @@ class AIService {
     };
   }
 
-    /**
+  /**
+   * Включить/выключить режим отладки
+   */
+  setDebugMode(enabled) {
+    this.debugMode = enabled;
+    if (enabled) {
+      this.addDebugLog('info', '🐛 Режим отладки включен');
+    } else {
+      this.addDebugLog('info', '🐛 Режим отладки выключен');
+    }
+  }
+
+  /**
+   * Добавить запись в лог отладки
+   */
+  addDebugLog(type, message, extra = {}) {
+    const logEntry = {
+      timestamp: new Date().toISOString(),
+      type, // prompt, response, error, info
+      message,
+      ...extra
+    };
+    
+    this.debugLogs.push(logEntry);
+    
+    // Ограничиваем количество логов (последние 1000)
+    if (this.debugLogs.length > 1000) {
+      this.debugLogs = this.debugLogs.slice(-1000);
+    }
+    
+    // Логируем в консоль если режим отладки включен
+    if (this.debugMode) {
+      console.log(`[DEBUG] ${type.toUpperCase()}: ${message}`, extra);
+    }
+  }
+
+  /**
+   * Получить логи отладки
+   */
+  getDebugLogs() {
+    return this.debugLogs;
+  }
+
+  /**
+   * Очистить логи отладки
+   */
+  clearDebugLogs() {
+    this.debugLogs = [];
+    this.addDebugLog('info', '🧹 Логи отладки очищены');
+  }
+
+  /**
+   * Установить версию API
+   * @param {string} version - Версия API (v1, v1beta, v2, demo)
+   */
+  setApiVersion(version) {
+    if (this.apiVersions[version]) {
+      this.currentApiVersion = version;
+      console.log(`🔧 API версия изменена на: ${version}`);
+    } else {
+      console.warn(`⚠️ Неизвестная версия API: ${version}. Доступные: ${Object.keys(this.apiVersions).join(', ')}`);
+    }
+  }
+
+  /**
+   * Получить текущий базовый URL API
+   * @returns {string} Базовый URL для текущей версии API
+   */
+  getApiBaseUrl() {
+    return this.apiVersions[this.currentApiVersion];
+  }
+
+  /**
    * Получает список доступных моделей из Google API
    * @param {string} apiKey - API ключ для проверки доступности
+   * @param {string} apiVersion - Версия API (опционально)
    * @returns {Promise<Array>} Список доступных моделей
    */
-  async getAvailableModels(apiKey) {
+  async getAvailableModels(apiKey, apiVersion = null) {
     try {
-      console.log('🔍 Получаем список всех моделей из Google API...');
-      
-      // Делаем запрос к Google API для получения списка моделей
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (!response.ok) {
-        if (response.status === 403 || response.status === 401) {
-          throw new Error('API_KEY_INVALID');
-        }
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      // Временно меняем версию API если указана
+      const originalVersion = this.currentApiVersion;
+      if (apiVersion && this.apiVersions[apiVersion]) {
+        this.setApiVersion(apiVersion);
       }
-
-      const data = await response.json();
-      console.log(`📡 Получено ${data.models?.length || 0} моделей от Google API`);
-
-      if (!data.models || !Array.isArray(data.models)) {
-        throw new Error('Некорректный ответ от API Google');
-      }
-
-      // Фильтруем только generative модели (те что могут генерировать текст)
-      const generativeModels = data.models.filter(model => 
-        model.supportedGenerationMethods?.includes('generateContent') &&
-        model.name.includes('gemini')
-      );
-
-      console.log(`🤖 Найдено ${generativeModels.length} генеративных Gemini моделей`);
-
-      // Тестируем каждую модель на работоспособность
-      const testedModels = [];
       
-      for (const model of generativeModels) {
-        const modelId = model.name.replace('models/', '');
-        
-        console.log(`🧪 Тестируем модель: ${modelId}...`);
-        
+      console.log(`🔍 Получаем список моделей из Google API (${this.currentApiVersion})...`);
+      
+      // Пробуем разные версии API
+      const versionsToTry = apiVersion ? [apiVersion] : ['v1beta', 'v1', 'v2'];
+      let lastError = null;
+      
+      for (const version of versionsToTry) {
         try {
-          const genAI = new GoogleGenerativeAI(apiKey);
-          const testModel = genAI.getGenerativeModel({ 
-            model: modelId,
-            generationConfig: {
-              maxOutputTokens: 5,
-              temperature: 0.1
+          const baseUrl = this.apiVersions[version];
+          const url = `${baseUrl}/models?key=${apiKey}`;
+          
+          console.log(`🚀 Пробуем API версию ${version}: ${url}`);
+          
+          const response = await fetch(url, {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json'
             }
           });
-          
-          // Быстрый тест с таймаутом
-          const testResult = await Promise.race([
-            testModel.generateContent('Test'),
-            new Promise((_, reject) => 
-              setTimeout(() => reject(new Error('Timeout')), 3000)
-            )
-          ]);
-          
-          if (testResult?.response?.text()) {
-            console.log(`✅ Модель ${modelId} работает`);
-            
-            testedModels.push({
-              id: modelId,
-              name: this.getModelDisplayName(modelId),
-              description: this.getModelDescription(modelId, model),
-              available: true,
-              status: 'working',
-              version: this.getModelVersion(modelId),
-              capabilities: model.supportedGenerationMethods || [],
-              inputTokenLimit: model.inputTokenLimit || 'Неизвестно',
-              outputTokenLimit: model.outputTokenLimit || 'Неизвестно'
-            });
+
+          if (!response.ok) {
+            if (response.status === 403 || response.status === 401) {
+              throw new Error('API_KEY_INVALID');
+            }
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
           }
+
+          const data = await response.json();
+          console.log(`📡 Успешно получено ${data.models?.length || 0} моделей через API ${version}`);
+          
+          // Устанавливаем рабочую версию как текущую
+          this.currentApiVersion = version;
+          
+          return await this.processModels(data, apiKey);
           
         } catch (error) {
-          console.log(`❌ Модель ${modelId} недоступна: ${error.message}`);
-          
-          let errorType = 'unknown';
-          if (error.message.includes('not found') || error.message.includes('404')) {
-            errorType = 'not_found';
-          } else if (error.message.includes('quota') || error.message.includes('QUOTA_EXCEEDED')) {
-            errorType = 'quota_exceeded';
-          } else if (error.message.includes('API_KEY')) {
-            errorType = 'api_key_invalid';
-          } else if (error.message.includes('Timeout')) {
-            errorType = 'timeout';
-          }
-          
-          testedModels.push({
-            id: modelId,
-            name: this.getModelDisplayName(modelId),
-            description: this.getModelDescription(modelId, model),
-            available: false,
-            status: errorType,
-            error: this.getErrorMessage(errorType, error.message),
-            version: this.getModelVersion(modelId),
-            capabilities: model.supportedGenerationMethods || [],
-            inputTokenLimit: model.inputTokenLimit || 'Неизвестно',
-            outputTokenLimit: model.outputTokenLimit || 'Неизвестно'
-          });
+          console.log(`❌ API версия ${version} не работает: ${error.message}`);
+          lastError = error;
+          continue;
         }
       }
       
-      // Сортируем: сначала рабочие, потом по версии (новые сверху)
-      testedModels.sort((a, b) => {
-        if (a.available !== b.available) {
-          return b.available - a.available; // Рабочие сверху
-        }
-        return b.version.localeCompare(a.version); // Новые версии сверху
-      });
-      
-      console.log(`✨ Обработка завершена. Доступно: ${testedModels.filter(m => m.available).length}/${testedModels.length} моделей`);
-      return testedModels;
+      // Восстанавливаем оригинальную версию
+      this.currentApiVersion = originalVersion;
+      throw lastError;
       
     } catch (error) {
       console.error('❌ Ошибка получения списка моделей:', error);
+      return this.getFallbackModels();
+    }
+  }
+
+  /**
+   * Обрабатывает полученные модели и тестирует их
+   * @param {Object} data - Данные от API
+   * @param {string} apiKey - API ключ
+   * @returns {Promise<Array>} Обработанный список моделей
+   */
+  async processModels(data, apiKey) {
+    if (!data.models || !Array.isArray(data.models)) {
+      throw new Error('Некорректный ответ от API Google');
+    }
+
+    // Фильтруем только generative модели
+    const generativeModels = data.models.filter(model => 
+      model.supportedGenerationMethods?.includes('generateContent') &&
+      model.name.includes('gemini')
+    );
+
+    console.log(`🤖 Найдено ${generativeModels.length} генеративных Gemini моделей`);
+
+    // Тестируем каждую модель на работоспособность
+    const testedModels = [];
+    let testedCount = 0;
+    const maxTestsPerRequest = 15; // Ограничиваем количество тестов для экономии квоты
+    
+    for (const model of generativeModels) {
+      const modelId = model.name.replace('models/', '');
       
-      // Fallback на захардкоженный список в случае критической ошибки
-      console.log('🔄 Используем резервный список моделей...');
-      
-      return [
-        {
-          id: 'gemini-2.5-pro-preview-05-06',
-          name: 'Gemini 2.5 Pro Preview 05-06',
-          description: 'Рекомендуемая стабильная версия 2.5 Pro',
-          available: true,
-          status: 'fallback',
-          version: '2.5',
-          capabilities: ['generateContent'],
-          inputTokenLimit: 'До 1M токенов',
-          outputTokenLimit: 'До 8K токенов'
-        },
-        {
-          id: 'gemini-1.5-pro',
-          name: 'Gemini 1.5 Pro (Legacy)',
-          description: 'Устаревшая, но стабильная модель',
-          available: true,
-          status: 'fallback',
-          version: '1.5',
-          capabilities: ['generateContent'],
-          inputTokenLimit: 'До 2M токенов',
-          outputTokenLimit: 'До 8K токенов'
+      // Проверяем кэш
+      const cacheKey = `${modelId}_${apiKey.slice(-8)}`;
+      const cached = this.modelAvailabilityCache.get(cacheKey);
+      if (cached) {
+        const cacheAge = Date.now() - cached.timestamp;
+        const maxAge = cached.cacheTime || this.cacheTimeout;
+        
+        if (cacheAge < maxAge) {
+          console.log(`📋 Используем кэш для модели: ${modelId} (${cached.available ? 'доступна' : 'недоступна'})`);
+          testedModels.push({
+            ...cached.data,
+            status: cached.available ? 'cached_working' : 'cached_unavailable'
+          });
+          continue;
+        } else {
+          // Удаляем устаревший кэш
+          this.modelAvailabilityCache.delete(cacheKey);
         }
-      ];
+      }
+      
+      // Помечаем известные проблемные модели, но не пропускаем их полностью
+      let isKnownProblematic = this.knownProblematicModels.has(modelId);
+      if (isKnownProblematic) {
+        console.log(`⚠️ Известная проблемная модель: ${modelId} - добавляем без тестирования`);
+        const modelData = {
+          id: modelId,
+          name: this.getModelDisplayName(modelId, model),
+          description: this.getModelDescription(modelId, model),
+          available: false, // Помечаем как недоступную, но позволяем выбрать
+          status: 'known_problematic',
+          error: 'Модель известна как проблемная (deprecated или часто превышает квоту). Используйте на свой страх и риск.',
+          version: this.getModelVersion(modelId),
+          apiVersion: this.currentApiVersion,
+          capabilities: model.supportedGenerationMethods || [],
+          inputTokenLimit: model.inputTokenLimit || 'Неизвестно',
+          outputTokenLimit: model.outputTokenLimit || 'Неизвестно',
+          canSelectAnyway: true // Флаг что можно выбрать несмотря на проблемы
+        };
+        
+        testedModels.push(modelData);
+        
+        // Кэшируем результат
+        this.modelAvailabilityCache.set(cacheKey, {
+          data: modelData,
+          available: false,
+          timestamp: Date.now()
+        });
+        continue;
+      }
+      
+      // Проверяем лимит тестирования
+      if (testedCount >= maxTestsPerRequest) {
+        console.log(`⏸️ Достигнут лимит тестирования (${maxTestsPerRequest}), пропускаем ${modelId}`);
+        testedModels.push({
+          id: modelId,
+          name: this.getModelDisplayName(modelId, model),
+          description: this.getModelDescription(modelId, model),
+          available: false,
+          status: 'skipped_quota_limit',
+          error: 'Пропущено для экономии квоты (превышен лимит тестирования). Можно выбрать на свой страх и риск.',
+          version: this.getModelVersion(modelId),
+          apiVersion: this.currentApiVersion,
+          capabilities: model.supportedGenerationMethods || [],
+          inputTokenLimit: model.inputTokenLimit || 'Неизвестно',
+          outputTokenLimit: model.outputTokenLimit || 'Неизвестно',
+          canSelectAnyway: true // Можно выбрать несмотря на то что не тестировалась
+        });
+        continue;
+      }
+
+      console.log(`🧪 Тестируем модель: ${modelId} на API ${this.currentApiVersion}... (${testedCount + 1}/${maxTestsPerRequest})`);
+      testedCount++;
+      
+      try {
+        // Создаем кастомный fetch для тестирования
+        const createTestFetch = () => {
+          return (url, options) => {
+            if (typeof url === 'string' && url.includes('generativelanguage.googleapis.com/v1/')) {
+              const newUrl = url.replace('/v1/', `/${this.currentApiVersion}/`);
+              return fetch(newUrl, options);
+            }
+            return fetch(url, options);
+          };
+        };
+
+        const genAI = new GoogleGenerativeAI(apiKey);
+        
+        // Устанавливаем кастомный fetch для тестирования если версия API не v1
+        if (this.currentApiVersion !== 'v1') {
+          genAI.requestOptions = {
+            fetch: createTestFetch()
+          };
+        }
+        
+        const testModel = genAI.getGenerativeModel({ 
+          model: modelId,
+          generationConfig: {
+            maxOutputTokens: 5,
+            temperature: 0.1
+          }
+        });
+        
+        // Быстрый тест с минимальным запросом для экономии квоты
+        const testResult = await Promise.race([
+          testModel.generateContent('Hi'),
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Timeout')), 2000)
+          )
+        ]);
+        
+        if (testResult?.response?.text()) {
+          console.log(`✅ Модель ${modelId} работает`);
+          
+          const modelData = {
+            id: modelId,
+            name: this.getModelDisplayName(modelId, model),
+            description: this.getModelDescription(modelId, model),
+            available: true,
+            status: 'working',
+            version: this.getModelVersion(modelId),
+            apiVersion: this.currentApiVersion,
+            capabilities: model.supportedGenerationMethods || [],
+            inputTokenLimit: model.inputTokenLimit || 'Неизвестно',
+            outputTokenLimit: model.outputTokenLimit || 'Неизвестно'
+          };
+          
+          testedModels.push(modelData);
+          
+          // Кэшируем успешный результат
+          this.modelAvailabilityCache.set(cacheKey, {
+            data: modelData,
+            available: true,
+            timestamp: Date.now()
+          });
+        }
+        
+      } catch (error) {
+        console.log(`❌ Модель ${modelId} недоступна: ${error.message}`);
+        
+        let errorType = 'unknown';
+        if (error.message.includes('not found') || error.message.includes('404')) {
+          errorType = 'not_found';
+        } else if (error.message.includes('quota') || error.message.includes('QUOTA_EXCEEDED')) {
+          errorType = 'quota_exceeded';
+        } else if (error.message.includes('API_KEY')) {
+          errorType = 'api_key_invalid';
+        } else if (error.message.includes('Timeout')) {
+          errorType = 'timeout';
+        }
+        
+        const modelData = {
+          id: modelId,
+          name: this.getModelDisplayName(modelId, model),
+          description: this.getModelDescription(modelId, model),
+          available: false,
+          status: errorType,
+          error: this.getErrorMessage(errorType, error.message),
+          version: this.getModelVersion(modelId),
+          apiVersion: this.currentApiVersion,
+          capabilities: model.supportedGenerationMethods || [],
+          inputTokenLimit: model.inputTokenLimit || 'Неизвестно',
+          outputTokenLimit: model.outputTokenLimit || 'Неизвестно',
+          canSelectAnyway: errorType !== 'api_key_invalid' // Можно выбрать если проблема не в API ключе
+        };
+        
+        testedModels.push(modelData);
+        
+        // Кэшируем неудачный результат (но не на долго для квотных ошибок)
+        const cacheTime = errorType === 'quota_exceeded' ? 5 * 60 * 1000 : this.cacheTimeout; // 5 мин для квотных ошибок
+        this.modelAvailabilityCache.set(cacheKey, {
+          data: modelData,
+          available: false,
+          timestamp: Date.now(),
+          cacheTime
+        });
+      }
+    }
+    
+    // Сортируем: сначала рабочие, потом рекомендуемые, потом по версии (новые сверху)
+    const recommendedModels = [
+      'gemini-2.0-flash',
+      'gemini-1.5-flash', 
+      'gemini-1.5-flash-8b',
+      'gemini-2.0-flash-001',
+      'gemini-2.5-pro-preview-05-06',
+      'gemini-1.5-pro'
+    ];
+    
+    testedModels.sort((a, b) => {
+      // Сначала доступные
+      if (a.available !== b.available) {
+        return b.available - a.available;
+      }
+      
+      // Среди доступных - сначала рекомендуемые
+      if (a.available && b.available) {
+        const aRecommended = recommendedModels.indexOf(a.id);
+        const bRecommended = recommendedModels.indexOf(b.id);
+        
+        if (aRecommended !== -1 && bRecommended !== -1) {
+          return aRecommended - bRecommended; // По порядку рекомендаций
+        } else if (aRecommended !== -1) {
+          return -1; // a рекомендуемая, b нет
+        } else if (bRecommended !== -1) {
+          return 1; // b рекомендуемая, a нет
+        }
+      }
+      
+      // По версии (новые сверху)
+      return b.version.localeCompare(a.version);
+    });
+    
+    console.log(`✨ Обработка завершена. Доступно: ${testedModels.filter(m => m.available).length}/${testedModels.length} моделей`);
+    
+    // Сортируем модели для консистентности
+    const sortedModels = testedModels
+      .sort((a, b) => {
+        // Сначала по доступности
+        if (a.available && !b.available) return -1;
+        if (!a.available && b.available) return 1;
+        
+        // Затем по ID
+        return a.id.localeCompare(b.id);
+      });
+
+    console.log(`🏆 Топ-5 моделей: ${sortedModels.slice(0, 5).map(m => `${m.id} (${m.available ? 'доступна' : 'недоступна'})`).join(', ')}`);
+
+    return sortedModels;
+  }
+
+  /**
+   * Возвращает резервный список моделей
+   * @returns {Array} Список моделей по умолчанию
+   */
+  getFallbackModels() {
+    console.log('🔄 Используем резервный список моделей...');
+    
+    return [
+      {
+        id: 'gemini-2.5-pro-preview-05-06',
+        name: 'Gemini 2.5 Pro Preview 05-06',
+        description: 'Рекомендуемая стабильная версия 2.5 Pro',
+        available: true,
+        status: 'fallback',
+        version: '2.5',
+        apiVersion: this.currentApiVersion,
+        capabilities: ['generateContent'],
+        inputTokenLimit: 'До 1M токенов',
+        outputTokenLimit: 'До 8K токенов'
+      },
+      {
+        id: 'gemini-1.5-pro',
+        name: 'Gemini 1.5 Pro (Legacy)',
+        description: 'Устаревшая, но стабильная модель',
+        available: true,
+        status: 'fallback',
+        version: '1.5',
+        apiVersion: this.currentApiVersion,
+        capabilities: ['generateContent'],
+        inputTokenLimit: 'До 1M токенов',
+        outputTokenLimit: 'До 8K токенов'
+      }
+    ];
+  }
+
+  /**
+   * Универсальный метод для запроса к AI
+   * @param {string} prompt - Промпт для AI
+   * @param {Object} config - Конфигурация запроса
+   * @returns {Promise<string>} Ответ от AI
+   */
+  async queryAI(prompt, config = {}) {
+    const {
+      apiKey = process.env.GOOGLE_API_KEY,
+      modelId = 'gemini-2.5-pro-preview-05-06',
+      temperature = 0.7,
+      maxTokens = 2048,
+      timeout = 30000
+    } = config;
+
+    // Максимальные лимиты для всех моделей, особенно для thinking
+    const isThinkingModel = modelId.includes('thinking');
+    const actualTimeout = isThinkingModel ? Math.max(timeout, 180000) : Math.max(timeout, 60000); // 3 мин для thinking, 1 мин для остальных
+    const actualMaxTokens = isThinkingModel ? 32768 : 8192; // ОГРОМНЫЙ лимит для thinking моделей - они много "думают"
+    
+    console.log(`⚙️ Конфигурация для модели ${modelId}:`, {
+      isThinkingModel,
+      timeout: `${actualTimeout}ms (${actualTimeout/1000}s)`,
+      maxTokens: actualMaxTokens,
+      temperature,
+      baseMaxAttempts: this.maxAttempts
+    });
+
+    if (!apiKey) {
+      throw new Error('Google API ключ не найден');
+    }
+
+    // Логируем промпт
+    this.addDebugLog('prompt', prompt, {
+      model: modelId,
+      apiVersion: this.currentApiVersion,
+      temperature,
+      maxTokens,
+      timeout
+    });
+
+    // Создаем кастомный fetch для перехвата запросов к API
+    const createCustomFetch = () => {
+      return (url, options) => {
+        if (typeof url === 'string' && url.includes('generativelanguage.googleapis.com/v1/')) {
+          const newUrl = url.replace('/v1/', `/${this.currentApiVersion}/`);
+          console.log(`🌐 Перенаправляем: ${url} -> ${newUrl}`);
+          this.addDebugLog('info', `🌐 Перенаправление API: ${url} -> ${newUrl}`);
+          return fetch(newUrl, options);
+        }
+        return fetch(url, options);
+      };
+    };
+
+    // Создаем GoogleGenerativeAI с правильной конфигурацией для версии API
+    const genAI = new GoogleGenerativeAI(apiKey);
+    
+    // Устанавливаем кастомный fetch если версия API не v1
+    if (this.currentApiVersion !== 'v1') {
+      genAI.requestOptions = {
+        fetch: createCustomFetch()
+      };
+    }
+    
+    const model = genAI.getGenerativeModel({
+      model: modelId,
+      generationConfig: {
+        temperature,
+        maxOutputTokens: actualMaxTokens
+      }
+    });
+
+    // Больше попыток для thinking моделей
+    const maxAttempts = isThinkingModel ? Math.max(this.maxAttempts, 7) : this.maxAttempts; // 7 попыток для thinking моделей
+    
+    console.log(`🔄 Максимум попыток для ${modelId}: ${maxAttempts} (thinking: ${isThinkingModel})`);
+    
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const startTime = Date.now();
+      
+      try {
+        console.log(`🤖 Попытка ${attempt}/${maxAttempts} запроса к модели ${modelId} (API: ${this.currentApiVersion})...`);
+        this.addDebugLog('info', `🤖 Попытка ${attempt}/${maxAttempts} запроса к модели ${modelId}`, {
+          attempt,
+          model: modelId,
+          apiVersion: this.currentApiVersion
+        });
+        
+        const result = await Promise.race([
+          model.generateContent(prompt),
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error(`Timeout after ${actualTimeout}ms`)), actualTimeout)
+          )
+        ]);
+
+        const duration = Date.now() - startTime;
+        
+        // Детальное логирование всего объекта result
+        console.log('🔍 Полный объект result от Google API:', JSON.stringify(result, null, 2));
+        this.addDebugLog('info', '🔍 Полный объект result от Google API', {
+          attempt,
+          duration,
+          model: modelId,
+          result: JSON.stringify(result, null, 2)
+        });
+
+        // Проверяем структуру ответа
+        if (!result || !result.response) {
+          const errorMsg = 'Отсутствует объект response в результате';
+          console.log(`❌ ${errorMsg}`);
+          this.addDebugLog('error', errorMsg, {
+            attempt,
+            duration,
+            model: modelId,
+            result: JSON.stringify(result, null, 2)
+          });
+          
+          if (attempt === maxAttempts) {
+            throw new Error(errorMsg);
+          }
+          continue;
+        }
+
+        // Логируем candidates если есть
+        if (result.response.candidates) {
+          console.log('🔍 Candidates:', JSON.stringify(result.response.candidates, null, 2));
+          this.addDebugLog('info', '🔍 Candidates в ответе', {
+            attempt,
+            model: modelId,
+            candidates: JSON.stringify(result.response.candidates, null, 2),
+            candidatesCount: result.response.candidates.length
+          });
+
+          // Проверяем каждый candidate на наличие контента
+          result.response.candidates.forEach((candidate, index) => {
+            console.log(`🔍 Candidate ${index}:`, {
+              finishReason: candidate.finishReason,
+              safetyRatings: candidate.safetyRatings,
+              hasContent: !!candidate.content,
+              contentParts: candidate.content?.parts?.length || 0
+            });
+            
+            // Специальная обработка для MAX_TOKENS
+            if (candidate.finishReason === 'MAX_TOKENS') {
+              console.log(`⚠️ Модель достигла лимита токенов! Thinking токены: ${result.response.usageMetadata?.thoughtsTokenCount || 'неизвестно'}`);
+              this.addDebugLog('error', `⚠️ Модель достигла лимита токенов (MAX_TOKENS)`, {
+                attempt,
+                model: modelId,
+                thoughtsTokenCount: result.response.usageMetadata?.thoughtsTokenCount,
+                totalTokenCount: result.response.usageMetadata?.totalTokenCount,
+                maxTokensLimit: actualMaxTokens
+              });
+            }
+            
+            if (candidate.content?.parts) {
+              candidate.content.parts.forEach((part, partIndex) => {
+                console.log(`  📝 Part ${partIndex}:`, {
+                  hasText: !!part.text,
+                  textLength: part.text?.length || 0,
+                  textPreview: part.text?.substring(0, 100) || 'NO TEXT'
+                });
+              });
+            }
+          });
+        }
+
+        const response = result.response.text();
+        
+        if (response && response.trim()) {
+          console.log('✅ Получен ответ от AI');
+          this.addDebugLog('response', response, {
+            attempt,
+            duration,
+            model: modelId,
+            responseLength: response.length
+          });
+          return response;
+        }
+        
+        const errorMsg = `Пустой ответ от модели. Response: "${response}"`;
+        console.log(`❌ ${errorMsg}`);
+        this.addDebugLog('error', errorMsg, {
+          attempt,
+          duration,
+          model: modelId,
+          emptyResponse: response,
+          responseType: typeof response,
+          responseLength: response ? response.length : 0
+        });
+        
+        if (attempt === maxAttempts) {
+          throw new Error(errorMsg);
+        }
+        
+      } catch (error) {
+        const duration = Date.now() - startTime;
+        const errorMsg = `Попытка ${attempt} неудачна: ${error.message}`;
+        
+        console.error(`❌ ${errorMsg}`);
+        console.error('🔍 Полная ошибка:', error);
+        
+        // Проверяем, есть ли дополнительная информация в ошибке
+        if (error.response) {
+          console.error('🔍 Ответ в ошибке:', JSON.stringify(error.response, null, 2));
+        }
+        if (error.data) {
+          console.error('🔍 Данные в ошибке:', JSON.stringify(error.data, null, 2));
+        }
+        
+        this.addDebugLog('error', errorMsg, {
+          attempt,
+          duration,
+          model: modelId,
+          errorType: error.name,
+          errorMessage: error.message,
+          errorResponse: error.response ? JSON.stringify(error.response, null, 2) : null,
+          errorData: error.data ? JSON.stringify(error.data, null, 2) : null,
+          stack: error.stack
+        });
+        
+        if (attempt === maxAttempts) {
+          throw error;
+        }
+        
+        // Пауза перед повторной попыткой (больше для thinking моделей)
+        const basePause = isThinkingModel ? 3000 : 1000; // 3 сек для thinking, 1 сек для остальных
+        const pauseTime = basePause * attempt;
+        console.log(`⏳ Пауза ${pauseTime}ms перед следующей попыткой`);
+        this.addDebugLog('info', `⏳ Пауза ${pauseTime}ms перед следующей попыткой`);
+        await new Promise(resolve => setTimeout(resolve, pauseTime));
+      }
+    }
+  }
+
+  /**
+   * Получает ход для игры от AI
+   * @param {string} prompt - Промпт для AI
+   * @param {Object} aiConfig - Конфигурация AI
+   * @param {Function} parseResponse - Функция парсинга ответа
+   * @returns {Promise<Object>} Спарсенный ход
+   */
+  async getGameMove(prompt, aiConfig, parseResponse) {
+    try {
+      const response = await this.queryAI(prompt, aiConfig);
+      
+      if (typeof parseResponse === 'function') {
+        return parseResponse(response);
+      }
+      
+      return { success: true, response };
+      
+    } catch (error) {
+      console.error('❌ Ошибка получения хода от AI:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Legacy метод для обратной совместимости с шахматным движком
+   * @deprecated Используйте GameManager для новых игр
+   */
+  async getAiMove(gameState) {
+    console.warn('⚠️ Используется устаревший метод getAiMove. Переходите на GameManager.');
+    
+    try {
+      const { fen, strategy, apiKey, model, aiSide } = gameState;
+      
+      console.log('🎯 Получение хода AI для шахмат:', {
+        fen: fen?.substring(0, 50) + '...',
+        aiSide,
+        model: model || 'default'
+      });
+      
+      // Создаем промпт для шахматного AI
+      const prompt = `Ты - профессиональный шахматист. Проанализируй позицию и сделай ход.
+
+ТЕКУЩАЯ ПОЗИЦИЯ (FEN):
+${fen}
+
+ТЫ ИГРАЕШЬ ЗА: ${aiSide === 'white' ? 'белых' : 'черных'}
+
+ТВОЯ СТРАТЕГИЯ:
+${strategy || 'Играй лучший ход, учитывая тактику и стратегию'}
+
+ИНСТРУКЦИИ:
+1. Проанализируй позицию
+2. Найди лучший ход
+3. Ответь ТОЛЬКО в формате: "ХОД: e2e4" (без кавычек)
+4. Используй стандартную нотацию: от_клетка к_клетка (например: e2e4, g1f3)
+5. Затем объясни свой ход кратко
+
+ФОРМАТ ОТВЕТА:
+ХОД: [ваш_ход]
+ОБЪЯСНЕНИЕ: [краткое объяснение]
+НОВАЯ_СТРАТЕГИЯ: [обновленная стратегия на следующие ходы]`;
+
+      const response = await this.queryAI(prompt, {
+        apiKey,
+        modelId: model || 'gemini-2.5-pro-preview-05-06',
+        temperature: 0.7,
+        maxTokens: 32768, // Огромный лимит для thinking моделей
+        timeout: 120000   // 2 минуты для шахматных запросов
+      });
+
+      console.log('🤖 Ответ AI:', response);
+      
+      // Парсим ответ
+      const moveMatch = response.match(/ХОД:\s*([a-h][1-8][a-h][1-8][qrbn]?)/i);
+      if (!moveMatch) {
+        throw new Error('AI не предоставил валидный ход: ' + response);
+      }
+
+      const move = moveMatch[1].toLowerCase();
+      
+      // Извлекаем объяснение и новую стратегию
+      const explanationMatch = response.match(/ОБЪЯСНЕНИЕ:\s*([^]*?)(?=НОВАЯ_СТРАТЕГИЯ:|$)/i);
+      const strategyMatch = response.match(/НОВАЯ_СТРАТЕГИЯ:\s*([^]*?)$/i);
+
+      const result = {
+        move: move,
+        newStrategy: strategyMatch ? strategyMatch[1].trim() : strategy,
+        reasoning: explanationMatch ? explanationMatch[1].trim() : 'AI сделал ход',
+        model: model || 'gemini-2.5-pro-preview-05-06',
+        attempts: 1
+      };
+
+      console.log('✅ Успешно спарсен ход AI:', result.move);
+      return result;
+      
+    } catch (error) {
+      console.error('❌ Ошибка legacy метода getAiMove:', error);
+      throw error;
     }
   }
 
   /**
    * Получает человекочитаемое название модели
    */
-  getModelDisplayName(modelId) {
-    if (modelId.includes('gemini-2.5-pro')) {
-      return `Gemini 2.5 Pro ${modelId.includes('preview') ? 'Preview' : ''}`;
+  getModelDisplayName(modelId, apiModel = null) {
+    // Если есть данные из API, используем displayName
+    if (apiModel && apiModel.displayName) {
+      return apiModel.displayName;
     }
-    if (modelId.includes('gemini-2.5-flash')) {
-      return `Gemini 2.5 Flash ${modelId.includes('preview') ? 'Preview' : ''}`;
+    
+    // Убираем префикс models/ если есть
+    const cleanId = modelId.replace(/^models\//, '');
+    
+    // Специальная обработка для известных моделей
+    if (cleanId.startsWith('gemini-')) {
+      // Обрабатываем версии Gemini отдельно
+      const parts = cleanId.split('-');
+      let result = ['Gemini'];
+      
+      for (let i = 1; i < parts.length; i++) {
+        const part = parts[i];
+        const nextPart = parts[i + 1];
+        
+        // Обработка версий типа "2.5"
+        if (part.match(/^\d+$/) && nextPart && nextPart.match(/^\d+$/) && i === 1) {
+          result.push(`${part}.${nextPart}`);
+          i++; // Пропускаем следующую часть
+        }
+        // Обработка дат типа "04-17"
+        else if (part.match(/^\d{2}$/) && nextPart && nextPart.match(/^\d{2}$/) && i > 2) {
+          result.push(`${part}-${nextPart}`);
+          i++; // Пропускаем следующую часть
+        }
+        // Специальные сокращения
+        else if (part === 'exp') {
+          result.push('Experimental');
+        }
+        else if (part === 'pro') {
+          result.push('Pro');
+        }
+        else if (part === 'flash') {
+          result.push('Flash');
+        }
+        else if (part === 'lite') {
+          result.push('Lite');
+        }
+        else if (part === 'preview') {
+          result.push('Preview');
+        }
+        else if (part === 'thinking') {
+          result.push('Thinking');
+        }
+        else if (part === 'tts') {
+          result.push('TTS');
+        }
+        // Числа и даты
+        else if (part.match(/^\d{4}$/)) {
+          result.push(part); // Годы оставляем как есть
+        }
+        else if (part.match(/^\d{3}$/)) {
+          result.push(part); // Трёхзначные числа
+        }
+        // Обычные слова
+        else {
+          result.push(part.charAt(0).toUpperCase() + part.slice(1));
+        }
+      }
+      
+      return result.join(' ');
     }
-    if (modelId.includes('gemini-1.5-pro')) {
-      return 'Gemini 1.5 Pro';
-    }
-    if (modelId.includes('gemini-1.5-flash')) {
-      return 'Gemini 1.5 Flash';
-    }
-    return modelId.replace('gemini-', 'Gemini ').replace('-', ' ');
+    
+    // Для не-Gemini моделей используем старую логику
+    return cleanId
+      .split('-')
+      .map(part => {
+        if (part === 'exp') return 'Experimental';
+        if (part === 'pro') return 'Pro';
+        if (part === 'flash') return 'Flash';
+        if (part === 'lite') return 'Lite';
+        if (part === 'preview') return 'Preview';
+        if (part === 'thinking') return 'Thinking';
+        if (part === 'tts') return 'TTS';
+        if (part.match(/^\d+$/)) return part;
+        if (part.match(/^\d+\.\d+$/)) return `v${part}`;
+        if (part.match(/^\d{4}$/)) return part;
+        if (part.match(/^\d{2}$/)) return part;
+        
+        return part.charAt(0).toUpperCase() + part.slice(1);
+      })
+      .join(' ');
   }
 
   /**
    * Получает описание модели
    */
-  getModelDescription(modelId, apiModel) {
-    if (modelId.includes('2.5')) {
-      if (modelId.includes('pro')) {
-        return 'Новейшая мощная модель с улучшенными возможностями';
-      }
-      if (modelId.includes('flash')) {
-        return 'Быстрая и эффективная модель для простых задач';
-      }
+  getModelDescription(modelId, apiModel = null) {
+    // Если есть данные из API, используем description
+    if (apiModel && apiModel.description) {
+      return apiModel.description;
     }
-    if (modelId.includes('1.5')) {
-      return 'Стабильная legacy модель';
+    
+    // Генерируем описание на основе ID модели
+    const cleanId = modelId.replace(/^models\//, '').toLowerCase();
+    
+    // Определяем тип модели
+    let description = '';
+    
+    if (cleanId.includes('2.5')) {
+      if (cleanId.includes('pro')) {
+        description = 'Новейшая мощная модель с улучшенными возможностями';
+      } else if (cleanId.includes('flash')) {
+        description = 'Быстрая и эффективная модель для простых задач';
+      } else {
+        description = 'Модель Gemini 2.5 поколения';
+      }
+    } else if (cleanId.includes('2.0')) {
+      if (cleanId.includes('flash')) {
+        description = 'Новая быстрая модель с улучшенной производительностью';
+      } else {
+        description = 'Модель Gemini 2.0 поколения';
+      }
+    } else if (cleanId.includes('1.5')) {
+      if (cleanId.includes('pro')) {
+        description = 'Стабильная профессиональная модель';
+      } else if (cleanId.includes('flash')) {
+        description = 'Быстрая и надежная модель';
+      } else {
+        description = 'Стабильная legacy модель';
+      }
+    } else if (cleanId.includes('1.0')) {
+      description = 'Классическая модель первого поколения';
+    } else if (cleanId.includes('exp')) {
+      description = 'Экспериментальная модель с новыми возможностями';
+    } else if (cleanId.includes('thinking')) {
+      description = 'Модель с расширенными возможностями рассуждения';
+    } else {
+      description = 'Модель Google Gemini';
     }
-    return apiModel.description || 'Модель Google Gemini';
+    
+    // Добавляем информацию о preview версиях
+    if (cleanId.includes('preview')) {
+      description += ' (предварительная версия)';
+    }
+    
+    return description;
   }
 
   /**
@@ -269,472 +1003,6 @@ class AIService {
         return 'Неизвестная ошибка';
     }
   }
-
-  /**
-   * Создает промпт для Gemini AI
-   * @param {Object} gameState - Состояние игры
-   * @param {string} previousError - Ошибка предыдущей попытки (если есть)
-   * @returns {string} Промпт для AI
-   */
-  createPrompt(gameState, previousError = null) {
-    const { fen, strategy, aiSide } = gameState;
-    
-    const chess = new Chess(fen);
-    const possibleMoves = chess.moves({ verbose: true }).map(m => m.san);
-    const turn = chess.turn() === 'w' ? 'White' : 'Black';
-    const isCheck = chess.inCheck();
-    const isGameOver = chess.isGameOver();
-    
-    // Проверяем, что есть доступные ходы
-    if (possibleMoves.length === 0) {
-      console.error('⚠️ КРИТИЧЕСКАЯ ОШИБКА: Нет доступных ходов для позиции:', fen);
-      throw new Error('Нет доступных ходов в данной позиции');
-    }
-    
-    console.log(`📋 Доступно ходов: ${possibleMoves.length} (${possibleMoves.slice(0, 5).join(', ')}${possibleMoves.length > 5 ? '...' : ''})`);
-    
-    // Анализируем позицию для более детального промпта
-    const materialBalance = this.calculateMaterialBalance(chess);
-    const gamePhase = this.determineGamePhase(chess);
-    const kingPosition = this.analyzeKingSafety(chess);
-    const centerControl = this.analyzeCenterControl(chess);
-    
-    let prompt = `Ты - гроссмейстер по шахматам мирового уровня. Ты играешь за ${aiSide === 'white' ? 'БЕЛЫХ' : 'ЧЕРНЫХ'}.
-
-**СТРАТЕГИЧЕСКИЙ АНАЛИЗ ПОЗИЦИИ:**
-
-🎯 **ГЛАВНАЯ ЦЕЛЬ:** Выиграть партию, используя долгосрочное планирование и тактическую точность.
-
-📊 **ТЕКУЩАЯ СИТУАЦИЯ:**
-- FEN: ${fen}
-- Сейчас ходят: ${turn} (${(turn === 'White' && aiSide === 'white') || (turn === 'Black' && aiSide === 'black') ? 'ЭТО ТЫ' : 'противник'})
-- Фаза игры: ${gamePhase}
-- Материальный баланс: ${materialBalance}
-- ${isCheck ? '⚠️ КРИТИЧНО: Король под шахом!' : '✅ Король в безопасности'}
-- ${isGameOver ? '🔚 Игра завершена!' : '⚡ Игра продолжается'}
-
-🏰 **БЕЗОПАСНОСТЬ КОРОЛЯ:**
-${kingPosition}
-
-🏛️ **КОНТРОЛЬ ЦЕНТРА:**
-${centerControl}
-
-📈 **ФОКУС НА ПОЗИЦИИ:**
-Анализируем только текущую позицию без влияния предыдущих ходов
-
-🧠 **ТВОЯ ТЕКУЩАЯ СТРАТЕГИЯ:**
-"${strategy}"
-
-🔍 **АНАЛИЗ ТВОИХ ФИГУР:**
-${this.analyzePiecesOnBoard(chess, aiSide)}
-
-🎯 **ДОСТУПНЫЕ ХОДЫ (ВСЕ ВОЗМОЖНЫЕ ХОДЫ):**
-${possibleMoves.join(', ')}
-
-🚨 **КРИТИЧЕСКИ ВАЖНО:** Ты МОЖЕШЬ сделать ТОЛЬКО один из ходов выше. Никакие другие ходы невозможны в этой позиции!
-
-**ГЛУБОКИЙ СТРАТЕГИЧЕСКИЙ АНАЛИЗ:**
-
-Проанализируй позицию методически:
-
-1️⃣ **ТАКТИЧЕСКИЙ АНАЛИЗ (приоритет #1):**
-   - Есть ли угрозы мата в 1-3 хода?
-   - Можно ли выиграть материал (связки, вилки, двойные удары)?
-   - Есть ли тактические мотивы (рентген, завлечение, отвлечение)?
-
-2️⃣ **МАТЕРИАЛЬНАЯ ОЦЕНКА:**
-   - Текущий материальный баланс
-   - Возможность размена для упрощения позиции
-   - Качество фигур vs количество
-
-3️⃣ **ПОЗИЦИОННОЕ ПЛАНИРОВАНИЕ:**
-   - Улучшение позиции фигур
-   - Контроль ключевых полей и линий
-   - Создание слабостей в лагере противника
-
-4️⃣ **ПЕШЕЧНАЯ СТРУКТУРА:**
-   - Создание проходных пешек
-   - Устранение слабых пешек
-   - Пешечные прорывы
-
-5️⃣ **ДОЛГОСРОЧНАЯ СТРАТЕГИЯ:**
-   - План на следующие 3-5 ходов
-   - Подготовка к эндшпилю
-   - Создание долгосрочных преимуществ
-
-**ТРЕБОВАНИЯ К ОТВЕТУ:**
-1. Ход ДОЛЖЕН быть ТОЧНО скопирован из списка доступных ходов выше (без изменений!)
-2. Никаких других ходов быть не может
-3. Стратегия должна быть детальной (до 200 символов) и включать:
-   - Краткое обоснование выбранного хода
-   - План на следующие 2-3 хода
-   - Основную стратегическую идею
-
-**СПИСОК ДОСТУПНЫХ ХОДОВ ДЛЯ СПРАВКИ:**
-${possibleMoves.join(', ')}
-
-Формат ответа JSON:
-{
-  "move": "ТОЧНАЯ КОПИЯ одного из ходов из списка выше",
-  "strategy": "Детальная стратегия: обоснование хода + план на 2-3 хода + главная идея (до 200 символов)"
 }
 
-🚨🚨🚨 КРИТИЧЕСКИ ВАЖНО: Ход должен быть ТОЧНОЙ КОПИЕЙ из списка! Нельзя изобретать ходы! 🚨🚨🚨
-
-⚠️ НЕ ДЕЛАЙ ХОДЫ ФИГУРАМИ, КОТОРЫХ НЕТ НА ДОСКЕ! Проверь анализ своих фигур выше!`;
-
-    if (previousError) {
-      prompt += `\n\n🚨 **ИСПРАВЛЕНИЕ ОШИБКИ:**
-Твой предыдущий ход был неверным. Ошибка: "${previousError}"
-Пожалуйста, проанализируй доску заново и выбери ДРУГОЙ, КОРРЕКТНЫЙ ход из списка доступных ходов.`;
-    }
-
-    return prompt;
-  }
-
-  /**
-   * Анализирует материальный баланс позиции
-   * @param {Chess} chess - Объект игры
-   * @returns {string} Описание материального баланса
-   */
-  calculateMaterialBalance(chess) {
-    const pieceValues = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
-    let whiteValue = 0, blackValue = 0;
-    
-    const board = chess.board();
-    for (let i = 0; i < 8; i++) {
-      for (let j = 0; j < 8; j++) {
-        const piece = board[i][j];
-        if (piece) {
-          const value = pieceValues[piece.type];
-          if (piece.color === 'w') {
-            whiteValue += value;
-          } else {
-            blackValue += value;
-          }
-        }
-      }
-    }
-    
-    const difference = whiteValue - blackValue;
-    if (Math.abs(difference) <= 1) {
-      return `Равный материал (${whiteValue}:${blackValue})`;
-    } else if (difference > 0) {
-      return `Белые +${difference} (${whiteValue}:${blackValue})`;
-    } else {
-      return `Черные +${Math.abs(difference)} (${whiteValue}:${blackValue})`;
-    }
-  }
-
-  /**
-   * Определяет фазу игры
-   * @param {Chess} chess - Объект игры
-   * @returns {string} Фаза игры
-   */
-  determineGamePhase(chess) {
-    const history = chess.history();
-    const moveCount = history.length;
-    
-    // Подсчитываем тяжелые фигуры на доске
-    const board = chess.board();
-    let heavyPieces = 0;
-    
-    for (let i = 0; i < 8; i++) {
-      for (let j = 0; j < 8; j++) {
-        const piece = board[i][j];
-        if (piece && (piece.type === 'q' || piece.type === 'r')) {
-          heavyPieces++;
-        }
-      }
-    }
-    
-    if (moveCount < 20 && heavyPieces >= 4) {
-      return "Дебют - развитие фигур";
-    } else if (moveCount < 40 && heavyPieces >= 2) {
-      return "Миттельшпиль - борьба за преимущество";
-    } else {
-      return "Эндшпиль - реализация преимущества";
-    }
-  }
-
-  /**
-   * Анализирует безопасность короля
-   * @param {Chess} chess - Объект игры
-   * @returns {string} Описание безопасности короля
-   */
-  analyzeKingSafety(chess) {
-    const turn = chess.turn();
-    const fen = chess.fen();
-    
-    // Простой анализ рокировки
-    const castlingRights = fen.split(' ')[2];
-    const whiteCanCastle = castlingRights.includes('K') || castlingRights.includes('Q');
-    const blackCanCastle = castlingRights.includes('k') || castlingRights.includes('q');
-    
-    let safety = "";
-    if (turn === 'w') {
-      if (whiteCanCastle) {
-        safety = "Белый король еще может рокироваться - нужно обеспечить безопасность";
-      } else {
-        safety = "Белый король уже рокировался или потерял право - оценить безопасность";
-      }
-    } else {
-      if (blackCanCastle) {
-        safety = "Черный король еще может рокироваться - нужно обеспечить безопасность";
-      } else {
-        safety = "Черный король уже рокировался или потерял право - оценить безопасность";
-      }
-    }
-    
-    if (chess.inCheck()) {
-      safety += " ⚠️ КОРОЛЬ ПОД ШАХОМ!";
-    }
-    
-    return safety;
-  }
-
-  /**
-   * Анализирует контроль центра
-   * @param {Chess} chess - Объект игры
-   * @returns {string} Описание контроля центра
-   */
-  analyzeCenterControl(chess) {
-    const centerSquares = ['d4', 'd5', 'e4', 'e5'];
-    let whiteControl = 0;
-    let blackControl = 0;
-    
-    centerSquares.forEach(square => {
-      const piece = chess.get(square);
-      if (piece) {
-        if (piece.color === 'w') whiteControl++;
-        else blackControl++;
-      }
-    });
-    
-    if (whiteControl > blackControl) {
-      return `Белые доминируют в центре (${whiteControl}:${blackControl})`;
-    } else if (blackControl > whiteControl) {
-      return `Черные доминируют в центре (${whiteControl}:${blackControl})`;
-    } else {
-      return `Равный контроль центра (${whiteControl}:${blackControl})`;
-    }
-  }
-
-  /**
-   * Анализирует фигуры конкретного игрока на доске
-   * @param {Chess} chess - Объект игры
-   * @param {string} side - Сторона игрока ('white' или 'black')
-   * @returns {string} Подробный анализ фигур игрока
-   */
-  analyzePiecesOnBoard(chess, side) {
-    const color = side === 'white' ? 'w' : 'b';
-    const board = chess.board();
-    const pieceNames = { 
-      p: 'пешек', r: 'ладей', n: 'коней', 
-      b: 'слонов', q: 'ферзей', k: 'король' 
-    };
-    
-    // Подсчитываем фигуры игрока
-    const pieces = {};
-    const positions = {};
-    
-    for (let rank = 0; rank < 8; rank++) {
-      for (let file = 0; file < 8; file++) {
-        const piece = board[rank][file];
-        if (piece && piece.color === color) {
-          const square = String.fromCharCode(97 + file) + (8 - rank);
-          
-          if (!pieces[piece.type]) {
-            pieces[piece.type] = 0;
-            positions[piece.type] = [];
-          }
-          pieces[piece.type]++;
-          positions[piece.type].push(square);
-        }
-      }
-    }
-    
-    let analysis = `Твои фигуры на доске:\n`;
-    
-    // Все фигуры в одинаковом формате
-    const pieceOrder = ['k', 'q', 'r', 'b', 'n', 'p']; // Порядок по важности
-    
-    pieceOrder.forEach(type => {
-      if (pieces[type]) {
-        analysis += `- ${pieceNames[type].charAt(0).toUpperCase() + pieceNames[type].slice(1)} (${pieces[type]}): ${positions[type].join(', ')}\n`;
-      } else {
-        analysis += `- ${pieceNames[type].charAt(0).toUpperCase() + pieceNames[type].slice(1)}: НЕТ НА ДОСКЕ\n`;
-      }
-    });
-    
-    return analysis.trim();
-  }
-
-  /**
-   * Извлекает JSON из ответа AI
-   * @param {string} responseText - Ответ от AI
-   * @returns {Object} Parsed JSON объект
-   */
-  parseAIResponse(responseText) {
-    try {
-      // Ищем JSON в ответе (может быть окружен другим текстом)
-      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        throw new Error('JSON не найден в ответе AI');
-      }
-
-      const jsonStr = jsonMatch[0];
-      const parsed = JSON.parse(jsonStr);
-
-      if (!parsed.move || typeof parsed.move !== 'string') {
-        throw new Error('Поле "move" отсутствует или не является строкой');
-      }
-
-      if (!parsed.strategy || typeof parsed.strategy !== 'string') {
-        throw new Error('Поле "strategy" отсутствует или не является строкой');
-      }
-
-      // Обрезаем стратегию до 250 символов если она слишком длинная
-      let strategy = parsed.strategy.trim();
-      if (strategy.length > 250) {
-        strategy = strategy.substring(0, 247) + '...';
-      }
-
-      return {
-        move: parsed.move.trim(),
-        strategy: strategy
-      };
-
-    } catch (error) {
-      throw new Error(`Ошибка парсинга ответа AI: ${error.message}`);
-    }
-  }
-
-  /**
-   * Валидирует ход AI в контексте текущей позиции
-   * @param {string} move - Ход в SAN нотации
-   * @param {string} fen - Текущая позиция
-   * @returns {boolean} true если ход валидный
-   */
-  validateMove(move, fen) {
-    try {
-      const chess = new Chess(fen);
-      const result = chess.move(move);
-      return result !== null;
-    } catch (error) {
-      console.error('Ошибка валидации хода:', error);
-      return false;
-    }
-  }
-
-  /**
-   * Получает ход от AI с повторными попытками при ошибках
-   * @param {Object} gameState - Состояние игры
-   * @returns {Promise<Object>} Результат с ходом и стратегией
-   */
-  async getAiMove(gameState) {
-    const { fen, strategy, apiKey, model = 'gemini-2.5-pro-preview-05-06', aiSide } = gameState;
-
-    if (!apiKey) {
-      throw new Error('API_KEY_INVALID: API ключ не предоставлен');
-    }
-
-    let genAI;
-    try {
-      genAI = new GoogleGenerativeAI(apiKey);
-    } catch (error) {
-      throw new Error('API_KEY_INVALID: Неверный формат API ключа');
-    }
-
-    // Используем выбранную модель или gemini-2.5-pro-preview-05-06 по умолчанию (лучше по отзывам)
-    const modelConfig = this.availableModels[model] || this.availableModels['gemini-2.5-pro-preview-05-06'];
-    
-    const aiModel = genAI.getGenerativeModel({ 
-      model: model,
-      generationConfig: {
-        temperature: modelConfig.temperature,
-        topP: 0.8,
-        topK: 40,
-        maxOutputTokens: modelConfig.maxTokens,
-      }
-    });
-
-    let lastError = null;
-    
-    for (let attempt = 1; attempt <= this.maxAttempts; attempt++) {
-      try {
-        console.log(`Попытка ${attempt}/${this.maxAttempts} получить ход от AI (модель: ${model})`);
-
-        const prompt = this.createPrompt(
-          { fen, strategy: strategy || this.defaultStrategy, aiSide },
-          lastError
-        );
-
-        console.log('Отправляем промпт AI...');
-        const result = await aiModel.generateContent(prompt);
-        const responseText = result.response.text();
-        
-        console.log('Получен ответ от AI:', responseText.substring(0, 200) + '...');
-
-        // Парсим ответ
-        const aiResponse = this.parseAIResponse(responseText);
-        
-        // Валидируем ход
-        if (!this.validateMove(aiResponse.move, fen)) {
-          lastError = `Ход "${aiResponse.move}" невалидный для текущей позиции`;
-          console.warn(`Попытка ${attempt}: ${lastError}`);
-          
-          if (attempt < this.maxAttempts) {
-            continue; // Пробуем еще раз
-          } else {
-            throw new Error('AI_FAILED_TO_MOVE: Все попытки исчерпаны');
-          }
-        }
-
-        // Ход валидный!
-        console.log(`✅ AI успешно выбрал ход: ${aiResponse.move}`);
-        
-        return {
-          move: aiResponse.move,
-          newStrategy: aiResponse.strategy,
-          attempts: attempt,
-          model: model
-        };
-
-      } catch (error) {
-        console.error(`Попытка ${attempt} завершилась ошибкой:`, error.message);
-
-        // Специфические ошибки API
-        if (error.message.includes('API_KEY_INVALID') || 
-            error.message.includes('API key')) {
-          throw new Error('API_KEY_INVALID: Проверьте корректность API ключа');
-        }
-
-        if (error.message.includes('quota') || 
-            error.message.includes('QUOTA_EXCEEDED')) {
-          throw new Error('QUOTA_EXCEEDED: Превышен лимит запросов к API');
-        }
-
-        // Проблема с моделью - пробуем fallback
-        if (error.message.includes('not found') || error.message.includes('404')) {
-          if (model !== 'gemini-1.5-pro' && attempt === 1) {
-            console.log(`Модель ${model} недоступна, пробуем gemini-1.5-pro...`);
-            gameState.model = 'gemini-1.5-pro';
-            return this.getAiMove(gameState);
-          }
-        }
-
-        lastError = error.message;
-
-        if (attempt >= this.maxAttempts) {
-          throw new Error(`AI_FAILED_TO_MOVE: ${lastError}`);
-        }
-
-        // Небольшая пауза перед следующей попыткой
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      }
-    }
-  }
-}
-
-module.exports = new AIService(); 
+module.exports = new AIService();
