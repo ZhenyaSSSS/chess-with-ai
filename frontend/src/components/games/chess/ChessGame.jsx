@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useSettings } from '../../../context/SettingsContext';
 import useChessGame from '../../../hooks/useChessGame';
 import ChessboardComponent from '../../ChessboardComponent';
@@ -6,7 +6,6 @@ import GameInfoPanel from '../../GameInfoPanel';
 import ApiKeyModal from '../../ApiKeyModal';
 import PromotionModal from './PromotionModal';
 import DebugConsole from '../../DebugConsole';
-import debugService from '../../../services/debugService';
 
 /**
  * Основной компонент шахматной игры
@@ -19,10 +18,7 @@ function ChessGame() {
     setSelectedModel 
   } = useSettings();
 
-  // Возвращаем состояние отладки
   const [showDebugConsole, setShowDebugConsole] = useState(false);
-  const [debugLogs, setDebugLogs] = useState([]);
-  const [debugMode, setDebugMode] = useState(false);
 
   // Используем старый, стабильный хук для шахматной логики
   const {
@@ -50,41 +46,6 @@ function ChessGame() {
     canUndo,
     canSwitchSides
   } = useChessGame(apiKey, selectedModel);
-
-  // Возвращаем обработчики отладки, но без периодического опроса
-  const handleToggleDebug = async () => {
-    try {
-      const newMode = !debugMode;
-      await debugService.toggleDebugMode(newMode);
-      setDebugMode(newMode);
-      
-      if (newMode) {
-        handleRefreshLogs(); // Загружаем логи при включении
-        setShowDebugConsole(true);
-      }
-    } catch (error) {
-      console.error('Ошибка переключения режима отладки:', error);
-    }
-  };
-
-  const handleRefreshLogs = async () => {
-    if (!debugMode) return;
-    try {
-      const logs = await debugService.getDebugLogs();
-      setDebugLogs(logs);
-    } catch (error) {
-      console.error('Ошибка загрузки логов отладки:', error);
-    }
-  };
-
-  const handleClearDebugLogs = async () => {
-    try {
-      await debugService.clearDebugLogs();
-      setDebugLogs([]);
-    } catch (error) {
-      console.error('Ошибка очистки логов:', error);
-    }
-  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-600 to-purple-700 p-4">
@@ -146,21 +107,11 @@ function ChessGame() {
               </div>
               <div className="flex flex-wrap gap-3 mt-4">
                 <button
-                  onClick={handleToggleDebug}
-                  className={`flex-1 font-semibold py-2 px-4 rounded-lg transition-colors ${
-                    debugMode 
-                      ? 'bg-red-600 hover:bg-red-700 text-white' 
-                      : 'bg-gray-600 hover:bg-gray-700 text-white'
-                  }`}
-                >
-                  🐛 {debugMode ? 'Выключить отладку' : 'Включить отладку'}
-                </button>
-                <button
                   onClick={() => setShowDebugConsole(true)}
                   disabled={!apiKey}
                   className="flex-1 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white font-semibold py-2 px-4 rounded-lg transition-colors"
                 >
-                  📋 Консоль отладки
+                  🐛 Консоль Отладки
                 </button>
               </div>
             </div>
@@ -199,13 +150,10 @@ function ChessGame() {
           isWhite={playerSide === 'white'}
         />
 
-        {/* Возвращаем консоль отладки с новыми props */}
+        {/* Консоль отладки */}
         <DebugConsole
-          isOpen={showDebugConsole}
+          isVisible={showDebugConsole}
           onClose={() => setShowDebugConsole(false)}
-          debugLogs={debugLogs}
-          onRefresh={handleRefreshLogs}
-          onClear={handleClearDebugLogs}
         />
       </div>
     </div>

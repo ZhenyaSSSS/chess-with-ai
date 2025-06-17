@@ -110,20 +110,22 @@ function GameInfoPanel({
         </div>
       )}
 
-      {/* Последнее объяснение AI */}
+      {/* --- Последнее объяснение AI --- */}
       {(() => {
-        const lastAiMove = moveHistory.filter(m => m.player === 'AI' && m.reasoning).slice(-1)[0];
-        return lastAiMove && (
-          <div className="bg-purple-50 rounded-xl p-4">
-            <div className="flex items-center mb-3">
+        const lastAiMoveWithReasoning = moveHistory.filter(m => m.player === 'AI' && m.reasoning).slice(-1)[0];
+        if (!lastAiMoveWithReasoning) return null;
+        
+        return (
+          <div className="bg-purple-50 rounded-xl p-4 transition-all duration-300">
+            <div className="flex items-center mb-2">
               <MessageSquare className="h-5 w-5 text-purple-600 mr-2" />
               <h3 className="font-semibold text-purple-900">Последнее объяснение AI</h3>
-              <span className="ml-2 text-xs text-purple-600 bg-purple-200 px-2 py-1 rounded-full">
-                {lastAiMove.san}
+              <span className="ml-2 text-xs text-purple-600 bg-purple-200 px-2 py-1 rounded-full font-mono">
+                {lastAiMoveWithReasoning.san}
               </span>
             </div>
-            <p className="text-purple-800 text-sm leading-relaxed">
-              {lastAiMove.reasoning}
+            <p className="text-purple-800 text-sm leading-relaxed pl-7">
+              {lastAiMoveWithReasoning.reasoning}
             </p>
           </div>
         );
@@ -171,7 +173,7 @@ function GameInfoPanel({
             </p>
           ) : (
             moveHistory.map((move, index) => (
-              <div key={index} className="bg-white rounded-lg text-sm">
+              <div key={index} className="bg-white rounded-lg text-sm transition-shadow hover:shadow-md">
                 <div className="flex items-center justify-between p-2">
                   <div className="flex items-center">
                     <span className="font-mono bg-gray-100 text-gray-800 px-2 py-1 rounded text-xs mr-3">
@@ -187,33 +189,27 @@ function GameInfoPanel({
                         ? 'bg-purple-100 text-purple-700' 
                         : 'bg-green-100 text-green-700'
                     }`}>
-                      {move.player === 'AI' ? '🤖' : '👤'}
+                      {move.player === 'AI' ? '🤖 AI' : '👤 Вы'}
                     </span>
+                    <Clock className="h-3 w-3 mr-1" />
+                    {formatTime(move.timestamp)}
                     {move.player === 'AI' && move.reasoning && (
                       <button
                         onClick={() => toggleMoveExpansion(index)}
-                        className="text-blue-500 hover:text-blue-700 mr-2"
-                        title="Показать объяснение"
+                        className="ml-2 p-1 text-blue-500 hover:text-blue-700 hover:bg-blue-100 rounded-full"
+                        title={expandedMoves.has(index) ? "Скрыть объяснение" : "Показать объяснение"}
                       >
-                        <MessageSquare className="h-3 w-3" />
+                        {expandedMoves.has(index) ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                       </button>
                     )}
-                    <Clock className="h-3 w-3 mr-1" />
-                    {formatTime(move.timestamp)}
                   </div>
                 </div>
                 
-                {/* Объяснение хода AI */}
-                {move.player === 'AI' && move.reasoning && expandedMoves.has(index) && (
-                  <div className="px-2 pb-2">
-                    <div className="bg-purple-50 border-l-4 border-purple-200 p-3 rounded-r-lg">
-                      <div className="flex items-start">
-                        <MessageSquare className="h-4 w-4 text-purple-600 mr-2 mt-0.5 flex-shrink-0" />
-                        <div className="text-xs text-purple-800">
-                          <div className="font-medium mb-1">💭 Объяснение AI:</div>
-                          <div className="leading-relaxed">{move.reasoning}</div>
-                        </div>
-                      </div>
+                {/* Объяснение хода AI (скрываемый блок) */}
+                {expandedMoves.has(index) && move.player === 'AI' && move.reasoning && (
+                  <div className="px-3 pb-3 animate-fade-in">
+                    <div className="bg-gray-50 border-t border-gray-200 p-3 rounded-b-lg">
+                      <p className="text-xs text-gray-700 leading-relaxed">{move.reasoning}</p>
                     </div>
                   </div>
                 )}

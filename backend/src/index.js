@@ -60,6 +60,23 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// ========== DEBUG API ==========
+app.post('/api/debug/toggle', (req, res) => {
+  const { enabled } = req.body;
+  aiService.setDebugMode(enabled);
+  res.json({ success: true, debugMode: enabled });
+});
+
+app.get('/api/debug/logs', (req, res) => {
+  res.json({ logs: aiService.getDebugLogs() });
+});
+
+app.delete('/api/debug/logs', (req, res) => {
+  aiService.clearDebugLogs();
+  res.json({ success: true, message: 'Debug logs cleared' });
+});
+// =============================
+
 // Эндпоинт для смены версии API
 app.post('/api/set-api-version', (req, res) => {
   try {
@@ -368,65 +385,6 @@ app.get('/api/sessions/:sessionId/analysis', (req, res) => {
   } catch (error) {
     console.error('Ошибка получения аналитики:', error);
     res.status(500).json({ error: error.message });
-  }
-});
-
-// === ОТЛАДКА AI ===
-
-// Включить/выключить режим отладки
-app.post('/api/debug/toggle', (req, res) => {
-  try {
-    const { enabled } = req.body;
-    aiService.setDebugMode(enabled);
-    
-    res.json({ 
-      success: true, 
-      debugMode: enabled,
-      message: enabled ? 'Режим отладки включен' : 'Режим отладки выключен'
-    });
-  } catch (error) {
-    console.error('Ошибка переключения режима отладки:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: error.message 
-    });
-  }
-});
-
-// Получить логи отладки
-app.get('/api/debug/logs', (req, res) => {
-  try {
-    const logs = aiService.getDebugLogs();
-    
-    res.json({ 
-      success: true, 
-      logs,
-      count: logs.length
-    });
-  } catch (error) {
-    console.error('Ошибка получения логов отладки:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: error.message 
-    });
-  }
-});
-
-// Очистить логи отладки
-app.delete('/api/debug/logs', (req, res) => {
-  try {
-    aiService.clearDebugLogs();
-    
-    res.json({ 
-      success: true, 
-      message: 'Логи отладки очищены'
-    });
-  } catch (error) {
-    console.error('Ошибка очистки логов отладки:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: error.message 
-    });
   }
 });
 

@@ -60,6 +60,7 @@ class GameService {
       return {
         move: response.data.move,
         newStrategy: response.data.newStrategy,
+        reasoning: response.data.reasoning,
         attempts: response.data.attempts || 1,
         model: response.data.model
       };
@@ -212,6 +213,40 @@ class GameService {
 
 // Создаем единственный экземпляр сервиса
 export const gameService = new GameService();
+
+// ================== DEBUG API FUNCTIONS ==================
+
+export async function toggleDebugMode(enabled) {
+  try {
+    const response = await api.post('/debug/toggle', { enabled });
+    return response.data;
+  } catch (error) {
+    console.error('Ошибка переключения режима отладки:', error);
+    throw error;
+  }
+}
+
+export async function getDebugLogs() {
+  try {
+    const response = await api.get('/debug/logs');
+    return response.data.logs || [];
+  } catch (error) {
+    console.error('Ошибка получения логов отладки:', error);
+    throw error;
+  }
+}
+
+export async function clearDebugLogs() {
+  try {
+    const response = await api.delete('/debug/logs');
+    return response.data;
+  } catch (error) {
+    console.error('Ошибка очистки логов отладки:', error);
+    throw error;
+  }
+}
+
+// =========================================================
 
 /**
  * Проверяет здоровье backend сервера

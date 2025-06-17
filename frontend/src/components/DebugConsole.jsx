@@ -1,228 +1,136 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Terminal, X, Copy, Trash2, Download, RefreshCw } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Terminal, Trash2, RefreshCw, Power, PowerOff, X, Server, AlertTriangle, MessageSquare, Info } from 'lucide-react';
+import { toggleDebugMode as apiToggleDebug, getDebugLogs as apiGetLogs, clearDebugLogs as apiClearLogs } from '../services/apiService';
 
-/**
- * Консоль отладки для мониторинга взаимодействия с AI
- */
-function DebugConsole({ isOpen, onClose, debugLogs = [], onRefresh, onClear }) {
-  const [filter, setFilter] = useState('all'); // all, prompts, responses, errors
-  const consoleRef = useRef(null);
-  const [autoScroll, setAutoScroll] = useState(true);
+const LogIcon = ({ type }) => {
+  switch (type) {
+    case 'prompt': return <MessageSquare size={16} className="text-blue-400" />;
+    case 'response': return <Server size={16} className="text-green-400" />;
+    case 'error': return <AlertTriangle size={16} className="text-red-400" />;
+    case 'info':
+    case 'success':
+    case 'warn':
+    default:
+      return <Info size={16} className="text-gray-400" />;
+  }
+};
 
-  // Автопрокрутка при новых логах
-  useEffect(() => {
-    if (autoScroll && consoleRef.current) {
-      consoleRef.current.scrollTop = consoleRef.current.scrollHeight;
-    }
-  }, [debugLogs, autoScroll]);
-
-  if (!isOpen) return null;
-
-  // Фильтрация логов
-  const filteredLogs = debugLogs.filter(log => {
-    if (filter === 'all') return true;
-    return log.type === filter;
-  });
-
-  // Копирование логов в буфер обмена
-  const copyLogs = () => {
-    const text = filteredLogs.map(log => 
-      `[${log.timestamp}] ${log.type.toUpperCase()}: ${log.message}`
-    ).join('\n');
-    navigator.clipboard.writeText(text);
-  };
-
-  // Экспорт логов в файл
-  const exportLogs = () => {
-    const text = filteredLogs.map(log => 
-      `[${log.timestamp}] ${log.type.toUpperCase()}: ${log.message}`
-    ).join('\n');
-    const blob = new Blob([text], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `ai-debug-${Date.now()}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  // Форматирование сообщения для отображения
-  const formatMessage = (log) => {
-    if (log.type === 'prompt') {
-      return (
-        <div className="bg-blue-900/20 border-l-4 border-blue-400 p-3 rounded">
-          <div className="text-blue-300 font-semibold mb-1">📤 ПРОМПТ → AI</div>
-          <pre className="text-blue-100 text-sm whitespace-pre-wrap font-mono">
-            {log.message}
-          </pre>
-          {log.model && (
-            <div className="text-blue-400 text-xs mt-2">
-              Модель: {log.model} | API: {log.apiVersion}
-            </div>
-          )}
-        </div>
-      );
-    }
-
-    if (log.type === 'response') {
-      return (
-        <div className="bg-green-900/20 border-l-4 border-green-400 p-3 rounded">
-          <div className="text-green-300 font-semibold mb-1">📥 ОТВЕТ ← AI</div>
-          <pre className="text-green-100 text-sm whitespace-pre-wrap font-mono">
-            {log.message || '(Пустой ответ)'}
-          </pre>
-          {log.attempt && (
-            <div className="text-green-400 text-xs mt-2">
-              Попытка: {log.attempt} | Время: {log.duration}ms
-            </div>
-          )}
-        </div>
-      );
-    }
-
-    if (log.type === 'error') {
-      return (
-        <div className="bg-red-900/20 border-l-4 border-red-400 p-3 rounded">
-          <div className="text-red-300 font-semibold mb-1">❌ ОШИБКА</div>
-          <pre className="text-red-100 text-sm whitespace-pre-wrap font-mono">
-            {log.message}
-          </pre>
-          {log.attempt && (
-            <div className="text-red-400 text-xs mt-2">
-              Попытка: {log.attempt}
-            </div>
-          )}
-        </div>
-      );
-    }
-
-    // Обычное сообщение
-    return (
-      <div className="bg-gray-800/20 border-l-4 border-gray-400 p-3 rounded">
-        <div className="text-gray-300 font-semibold mb-1">ℹ️ ИНФО</div>
-        <pre className="text-gray-100 text-sm whitespace-pre-wrap font-mono">
-          {log.message}
-        </pre>
+const LogEntry = ({ log }) => (
+  <div className="border-b border-gray-700 p-2 text-sm flex items-start">
+    <div className="flex-shrink-0 w-24 text-gray-400">
+      <div className="flex items-center">
+        <LogIcon type={log.type} />
+        <span className="ml-2 font-mono">{new Date(log.timestamp).toLocaleTimeString()}</span>
       </div>
-    );
+      <div className="text-xs text-gray-500 ml-6">{log.type.toUpperCase()}</div>
+    </div>
+    <div className="flex-grow pl-2">
+      <p className="font-medium text-gray-200">{log.message}</p>
+      {log.extra && (
+        <pre className="text-xs text-gray-400 bg-gray-800 p-2 mt-1 rounded-md overflow-x-auto">
+          {JSON.stringify(log.extra, null, 2)}
+        </pre>
+      )}
+    </div>
+  </div>
+);
+
+function DebugConsole({ isVisible, onClose }) {
+  const [logs, setLogs] = useState([]);
+  const [error, setError] = useState(null);
+  const [isEnabled, setIsEnabled] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const fetchLogs = useCallback(async () => {
+    if (!isEnabled) return;
+    setIsLoading(true);
+    try {
+      const logs = await apiGetLogs();
+      setLogs(logs.slice().reverse()); // Показываем новые логи сверху
+      setError(null);
+    } catch (err) {
+      setError('Не удалось загрузить логи. Бэкенд доступен?');
+      console.error(err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [isEnabled]);
+
+  const toggleDebugMode = async () => {
+    const newState = !isEnabled;
+    try {
+      await apiToggleDebug(newState);
+      setIsEnabled(newState);
+      if (newState) {
+        fetchLogs();
+      } else {
+        setLogs([]); // Очищаем логи при выключении
+      }
+    } catch (err) {
+      setError('Не удалось переключить режим отладки.');
+      console.error(err);
+    }
   };
+
+  const clearLogs = async () => {
+    try {
+      await apiClearLogs();
+      setLogs([]);
+    } catch (err) {
+      setError('Не удалось очистить логи.');
+      console.error(err);
+    }
+  };
+
+  useEffect(() => {
+    if (isVisible && isEnabled) {
+      fetchLogs();
+    }
+  }, [isVisible, isEnabled, fetchLogs]);
+
+  if (!isVisible) {
+    return null;
+  }
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-gray-900 rounded-2xl shadow-2xl w-full max-w-6xl h-[80vh] flex flex-col">
-        {/* Заголовок */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-700">
-          <div className="flex items-center gap-3">
-            <Terminal className="w-6 h-6 text-green-400" />
-            <h2 className="text-xl font-bold text-white">🐛 Консоль отладки AI</h2>
-            <span className="bg-blue-600 text-white text-xs px-2 py-1 rounded">
-              {filteredLogs.length} записей
-            </span>
-          </div>
-          
-          <div className="flex items-center gap-2">
-            {/* Фильтры */}
-            <select
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-              className="bg-gray-800 text-white border border-gray-600 rounded px-3 py-1 text-sm"
-            >
-              <option value="all">Все записи</option>
-              <option value="prompt">Только промпты</option>
-              <option value="response">Только ответы</option>
-              <option value="error">Только ошибки</option>
-            </select>
-
-            {/* Автопрокрутка */}
-            <label className="flex items-center gap-2 text-white text-sm">
-              <input
-                type="checkbox"
-                checked={autoScroll}
-                onChange={(e) => setAutoScroll(e.target.checked)}
-                className="rounded"
-              />
-              Автопрокрутка
-            </label>
-
-            {/* Кнопки действий */}
-            <button
-              onClick={copyLogs}
-              className="p-2 text-gray-400 hover:text-white transition-colors"
-              title="Копировать логи"
-            >
-              <Copy className="w-4 h-4" />
-            </button>
-            
-            <button
-              onClick={exportLogs}
-              className="p-2 text-gray-400 hover:text-white transition-colors"
-              title="Экспортировать логи"
-            >
-              <Download className="w-4 h-4" />
-            </button>
-            
-            <button
-              onClick={onRefresh}
-              className="p-2 rounded-md hover:bg-gray-700 transition-colors"
-              title="Обновить логи"
-            >
-              <RefreshCw className="w-4 h-4" />
-            </button>
-            
-            <button
-              onClick={onClear}
-              className="p-2 rounded-md hover:bg-gray-700 transition-colors"
-              title="Очистить логи"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
-            
-            <button
-              onClick={onClose}
-              className="p-2 text-gray-400 hover:text-white transition-colors"
-              title="Закрыть"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
+    <div className="fixed bottom-0 left-0 right-0 h-1/3 bg-gray-900 text-white border-t-2 border-indigo-500 shadow-lg z-50 flex flex-col">
+      <div className="flex items-center justify-between p-2 bg-gray-800 border-b border-gray-700">
+        <div className="flex items-center">
+          <Terminal className="mr-2 text-indigo-400" />
+          <h2 className="text-lg font-bold">Консоль Отладки</h2>
         </div>
-
-        {/* Содержимое консоли */}
-        <div 
-          ref={consoleRef}
-          className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-950/50"
-        >
-          {filteredLogs.length === 0 ? (
-            <div className="text-center text-gray-400 py-8">
-              <Terminal className="w-12 h-12 mx-auto mb-4 opacity-50" />
-              <p>Логи отладки пока пусты</p>
-              <p className="text-sm">Сделайте ход AI чтобы увидеть процесс общения</p>
-            </div>
-          ) : (
-            filteredLogs.map((log, index) => (
-              <div key={index} className="animate-fade-in">
-                <div className="text-xs text-gray-500 mb-1">
-                  {new Date(log.timestamp).toLocaleTimeString()}
-                </div>
-                {formatMessage(log)}
-              </div>
-            ))
+        <div className="flex items-center space-x-2">
+          {isEnabled && (
+            <>
+              <button onClick={fetchLogs} disabled={isLoading} className="p-1 hover:bg-gray-700 rounded-full disabled:opacity-50">
+                <RefreshCw size={18} className={isLoading ? 'animate-spin' : ''} />
+              </button>
+              <button onClick={clearLogs} className="p-1 hover:bg-gray-700 rounded-full">
+                <Trash2 size={18} />
+              </button>
+            </>
           )}
+          <button onClick={toggleDebugMode} className={`p-1 hover:bg-gray-700 rounded-full ${isEnabled ? 'text-green-500' : 'text-red-500'}`}>
+            {isEnabled ? <Power size={18} /> : <PowerOff size={18} />}
+          </button>
+          <button onClick={onClose} className="p-1 hover:bg-gray-700 rounded-full">
+            <X size={20} />
+          </button>
         </div>
-
-        {/* Подвал */}
-        <div className="p-4 border-t border-gray-700 bg-gray-800/50">
-          <div className="flex items-center justify-between text-sm text-gray-400">
-            <div>
-              Промпты: {debugLogs.filter(l => l.type === 'prompt').length} | 
-              Ответы: {debugLogs.filter(l => l.type === 'response').length} | 
-              Ошибки: {debugLogs.filter(l => l.type === 'error').length}
-            </div>
-            <div>
-              Режим отладки активен
-            </div>
+      </div>
+      <div className="overflow-y-auto flex-grow">
+        {error && <div className="p-4 text-red-500 bg-red-900">{error}</div>}
+        {!isEnabled ? (
+          <div className="flex items-center justify-center h-full text-gray-500">
+            Отладка выключена. Нажмите {<Power size={16} className="inline mx-1" />} чтобы включить.
           </div>
-        </div>
+        ) : logs.length === 0 ? (
+          <div className="flex items-center justify-center h-full text-gray-500">
+            Нет логов для отображения. Сделайте ход, чтобы появились данные.
+          </div>
+        ) : (
+          logs.map((log, index) => <LogEntry key={`${log.timestamp}-${index}`} log={log} />)
+        )}
       </div>
     </div>
   );
