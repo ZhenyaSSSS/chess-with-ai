@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Terminal, X, Copy, Trash2, Download } from 'lucide-react';
+import { Terminal, X, Copy, Trash2, Download, RefreshCw } from 'lucide-react';
 
 /**
  * Консоль отладки для мониторинга взаимодействия с AI
  */
-function DebugConsole({ isOpen, onClose, debugLogs = [] }) {
+function DebugConsole({ isOpen, onClose, debugLogs = [], onRefresh, onClear }) {
   const [filter, setFilter] = useState('all'); // all, prompts, responses, errors
   const consoleRef = useRef(null);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -159,6 +159,22 @@ function DebugConsole({ isOpen, onClose, debugLogs = [] }) {
               title="Экспортировать логи"
             >
               <Download className="w-4 h-4" />
+            </button>
+            
+            <button
+              onClick={onRefresh}
+              className="p-2 rounded-md hover:bg-gray-700 transition-colors"
+              title="Обновить логи"
+            >
+              <RefreshCw className="w-4 h-4" />
+            </button>
+            
+            <button
+              onClick={onClear}
+              className="p-2 rounded-md hover:bg-gray-700 transition-colors"
+              title="Очистить логи"
+            >
+              <Trash2 className="w-4 h-4" />
             </button>
             
             <button
