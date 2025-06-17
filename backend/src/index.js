@@ -432,8 +432,24 @@ app.delete('/api/debug/logs', (req, res) => {
 
 // ========== КОНЕЦ НОВЫХ API РОУТОВ ==========
 
-// В dev режиме возвращаем ошибку для неизвестных роутов
-if (process.env.NODE_ENV !== 'production') {
+// Обслуживание статических файлов в продакшене
+if (process.env.NODE_ENV === 'production') {
+  const frontendPath = path.join(__dirname, '../../frontend/dist');
+  
+  // Статические файлы
+  app.use(express.static(frontendPath));
+  
+  // SPA fallback - все неизвестные роуты перенаправляем на index.html
+  app.get('*', (req, res) => {
+    // Исключаем API роуты
+    if (req.path.startsWith('/api/')) {
+      return res.status(404).json({ error: 'API endpoint not found' });
+    }
+    
+    res.sendFile(path.join(frontendPath, 'index.html'));
+  });
+} else {
+  // В dev режиме возвращаем ошибку для неизвестных роутов
   app.use('*', (req, res) => {
     res.status(404).json({ error: 'Endpoint not found' });
   });
