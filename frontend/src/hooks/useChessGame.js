@@ -53,6 +53,15 @@ export function useChessGame(apiKey, selectedModel = 'gemini-2.5-pro-preview-05-
 
   // ================ ЭФФЕКТЫ ================
 
+  // Эффект для принудительной синхронизации FEN с Chess.js
+  useEffect(() => {
+    const currentGameFen = game.fen();
+    if (fen !== currentGameFen) {
+      console.log(`🔄 [FEN SYNC] Принудительная синхронизация: ${currentGameFen}`);
+      setFen(currentGameFen);
+    }
+  }, [moveHistory]); // Синхронизируем при каждом изменении истории ходов
+
   // Эффект для обновления статуса игры
   useEffect(() => {
     if (!apiKey) {
@@ -97,17 +106,6 @@ export function useChessGame(apiKey, selectedModel = 'gemini-2.5-pro-preview-05-
     }
   }, [fen, apiKey, isAiThinking, game, isPlayerTurn]);
 
-  // Эффект для автоматического хода AI когда его очередь
-  useEffect(() => {
-    if (apiKey && !game.isGameOver() && !isAiThinking && isAiTurn()) {
-      // Небольшая задержка для лучшего UX
-      const timer = setTimeout(() => {
-        makeAiMove();
-      }, 300);
-      return () => clearTimeout(timer);
-    }
-  }, [fen, apiKey, isAiThinking, isAiTurn]); // Убираем makeAiMove из зависимостей чтобы избежать цикла
-
   // ================ МЕТОДЫ ================
 
   // Функция для получения хода от AI
@@ -118,10 +116,14 @@ export function useChessGame(apiKey, selectedModel = 'gemini-2.5-pro-preview-05-
     setError(null);
 
     try {
-      console.log('Запрашиваем ход от AI...');
+      const currentFen = game.fen();
+      console.log(`[useChessGame] 🧠 Запрашиваем ход AI. FEN для отправки: ${currentFen}`);
+      console.log(`🎯 [CRITICAL DEBUG] React state FEN: ${fen}`);
+      console.log(`🎯 [CRITICAL DEBUG] Chess.js instance FEN: ${currentFen}`);
+      console.log(`🎯 [CRITICAL DEBUG] FEN совпадают? ${fen === currentFen}`);
       
       const response = await getAiMove({
-        fen: game.fen(),
+        fen: currentFen,
         strategy: aiStrategy,
         model: selectedModel,
         apiKey: apiKey,
@@ -148,10 +150,24 @@ export function useChessGame(apiKey, selectedModel = 'gemini-2.5-pro-preview-05-
         
         console.log('📝 Добавляем в историю ходов:', moveData);
         
-        setFen(game.fen());
+        const newFen = game.fen();
+        console.log(`🎯 [CRITICAL] FEN ДО хода AI: ${currentFen}`);
+        console.log(`🎯 [CRITICAL] FEN ПОСЛЕ хода AI: ${newFen}`);
+        console.log(`🎯 [CRITICAL] Ход AI: ${response.move} -> SAN: ${move.san}`);
+        console.log(`🎯 [CRITICAL] From: ${move.from}, To: ${move.to}`);
+        
+        // Принудительно синхронизируем FEN
+        setFen(newFen);
         setMoveHistory(prev => [...prev, moveData]);
         setLastMove({ from: move.from, to: move.to });
         setAiStrategy(response.newStrategy || aiStrategy);
+        
+        // Дополнительная проверка синхронизации
+        setTimeout(() => {
+          const currentReactFen = game.fen();
+          console.log(`🔄 [POST-AI-MOVE] Проверка синхронизации FEN: ${currentReactFen}`);
+        }, 100);
+        
         console.log('✅ AI сделал ход:', response.move);
       } else {
         throw new Error('Невалидный ход от AI: ' + response.move);
@@ -163,7 +179,25 @@ export function useChessGame(apiKey, selectedModel = 'gemini-2.5-pro-preview-05-
     } finally {
       setIsAiThinking(false);
     }
-  }, [apiKey, aiStrategy, game, isAiThinking, isAiTurn, aiSide, selectedModel]);
+  }, [apiKey, aiStrategy, game, selectedModel, aiSide, isAiTurn]);
+
+  // Эффект для автоматического хода AI когда его очередь
+  useEffect(() => {
+    const currentGameFen = game.fen();
+    console.log(`🎯 [useEffect] Проверка хода AI: apiKey=${!!apiKey}, gameOver=${game.isGameOver()}, aiThinking=${isAiThinking}, isAiTurn=${isAiTurn()}, currentFen=${currentGameFen}`);
+    
+    if (apiKey && !game.isGameOver() && !isAiThinking && isAiTurn()) {
+      console.log('[useChessGame] 🤖 Условия для хода AI выполнены, запускаем таймер');
+      // Небольшая задержка для лучшего UX
+      const timer = setTimeout(() => {
+        console.log('[useChessGame] 🤖 Триггер для хода AI сработал.');
+        makeAiMove();
+      }, 300);
+      return () => clearTimeout(timer);
+    } else {
+      console.log('[useChessGame] ❌ Условия для хода AI НЕ выполнены');
+    }
+  }, [moveHistory, apiKey, isAiThinking, isAiTurn, makeAiMove]);
 
   // Вспомогательная функция для выполнения хода
   const executeMove = useCallback((sourceSquare, targetSquare, promotion = null) => {
@@ -178,18 +212,20 @@ export function useChessGame(apiKey, selectedModel = 'gemini-2.5-pro-preview-05-
         return false;
       }
 
-      // Получаем новое FEN состояние
       const newFen = game.fen();
+      console.log(`[useChessGame] ✅ Ход игрока "${move.san}" принят. Новый FEN: ${newFen}`);
       
       // Ход валидный - обновляем состояние
-      setFen(newFen);
-      setMoveHistory(prev => [...prev, {
+      const moveData = {
         move: `${sourceSquare}${targetSquare}${promotion || ''}`,
         san: move.san,
         player: 'Человек',
         side: playerSide,
         timestamp: Date.now()
-      }]);
+      };
+      
+      setFen(newFen);
+      setMoveHistory(prev => [...prev, moveData]);
       setLastMove({ from: sourceSquare, to: targetSquare });
       setSelectedSquare(null);
       setPossibleMoves([]);
@@ -240,6 +276,7 @@ export function useChessGame(apiKey, selectedModel = 'gemini-2.5-pro-preview-05-
 
   // Обработчик перетаскивания фигур
   const onPieceDrop = useCallback((sourceSquare, targetSquare, piece) => {
+    console.log(`[useChessGame] ♟️ Игрок уронил фигуру: ${piece} с ${sourceSquare} на ${targetSquare}`);
     if (isAiThinking || !apiKey || game.isGameOver() || !isPlayerTurn() || showPromotionModal) {
       return false;
     }
@@ -267,6 +304,14 @@ export function useChessGame(apiKey, selectedModel = 'gemini-2.5-pro-preview-05-
 
   // Обработчик клика по клетке
   const onSquareClick = useCallback((square) => {
+    if (!isPlayerTurn()) return;
+
+    console.log(`[useChessGame] 🖱️ Клик по клетке: ${square}`);
+
+    if (error) {
+      clearError();
+    }
+
     if (isAiThinking || !apiKey || game.isGameOver() || !isPlayerTurn() || showPromotionModal) {
       return;
     }

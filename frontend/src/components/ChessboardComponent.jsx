@@ -10,6 +10,10 @@ function ChessboardComponent({
   isDisabled,
   boardOrientation = "white"
 }) {
+  // Логирование только при изменениях
+  // console.log(`🎯 [ChessboardComponent] Получен FEN: ${fen}`);
+  // console.log(`🎯 [ChessboardComponent] LastMove:`, lastMove);
+  
   // Создаем стили для подсветки клеток
   const customSquareStyles = {};
 

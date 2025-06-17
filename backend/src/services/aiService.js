@@ -736,6 +736,8 @@ class AIService {
     try {
       const { fen, strategy, apiKey, model, aiSide } = gameState;
       
+      console.log(`[aiService] 📥 ПОЛУЧЕН FEN: ${fen}`);
+      
       const chess = new Chess(fen);
       
       if (chess.isGameOver()) {
