@@ -496,10 +496,7 @@ class AIService {
   }
 
   /**
-   * Универсальный метод для запроса к AI
-   * @param {string} prompt - Промпт для AI
-   * @param {Object} config - Конфигурация запроса
-   * @returns {Promise<string>} Ответ от AI
+   * Главный метод для отправки запросов к AI
    */
   async queryAI(prompt, config = {}) {
     const {
@@ -527,14 +524,7 @@ class AIService {
       throw new Error('Google API ключ не найден');
     }
 
-    // Логируем промпт
-    this.addDebugLog('prompt', prompt, {
-      model: modelId,
-      apiVersion: this.currentApiVersion,
-      temperature,
-      maxTokens,
-      timeout
-    });
+    this.addDebugLog('PROMPT', prompt, { model: modelId, apiVersion: this.currentApiVersion, temperature, maxTokens, timeout });
 
     // Создаем кастомный fetch для перехвата запросов к API
     const createCustomFetch = () => {
@@ -576,12 +566,7 @@ class AIService {
       const startTime = Date.now();
       
       try {
-        console.log(`🤖 Попытка ${attempt}/${maxAttempts} запроса к модели ${modelId} (API: ${this.currentApiVersion})...`);
-        this.addDebugLog('info', `🤖 Попытка ${attempt}/${maxAttempts} запроса к модели ${modelId}`, {
-          attempt,
-          model: modelId,
-          apiVersion: this.currentApiVersion
-        });
+        this.addDebugLog('INFO', `🤖 Попытка ${attempt}/${maxAttempts} запроса к модели ${modelId}`, { attempt, model: modelId, apiVersion: this.currentApiVersion });
         
         const result = await Promise.race([
           model.generateContent(prompt),
@@ -592,14 +577,7 @@ class AIService {
 
         const duration = Date.now() - startTime;
         
-        // Детальное логирование всего объекта result
-        console.log('🔍 Полный объект result от Google API:', JSON.stringify(result, null, 2));
-        this.addDebugLog('info', '🔍 Полный объект result от Google API', {
-          attempt,
-          duration,
-          model: modelId,
-          result: JSON.stringify(result, null, 2)
-        });
+        this.addDebugLog('INFO', '🔍 Полный объект result от Google API', { attempt, duration, model: modelId, result: JSON.stringify(result, null, 2) });
 
         // Проверяем структуру ответа
         if (!result || !result.response) {
@@ -661,28 +639,23 @@ class AIService {
           });
         }
 
-        const response = result.response.text();
+        const responseText = result.response.text();
         
-        if (response && response.trim()) {
+        if (responseText && responseText.trim()) {
           console.log('✅ Получен ответ от AI');
-          this.addDebugLog('response', response, {
-            attempt,
-            duration,
-            model: modelId,
-            responseLength: response.length
-          });
-          return response;
+          this.addDebugLog('RESPONSE', responseText, { attempt, duration, model: modelId, responseLength: responseText.length });
+          return responseText;
         }
         
-        const errorMsg = `Пустой ответ от модели. Response: "${response}"`;
+        const errorMsg = `Пустой ответ от модели. Response: "${responseText}"`;
         console.log(`❌ ${errorMsg}`);
         this.addDebugLog('error', errorMsg, {
           attempt,
           duration,
           model: modelId,
-          emptyResponse: response,
-          responseType: typeof response,
-          responseLength: response ? response.length : 0
+          emptyResponse: responseText,
+          responseType: typeof responseText,
+          responseLength: responseText ? responseText.length : 0
         });
         
         if (attempt === maxAttempts) {
