@@ -216,50 +216,65 @@ export function useNewChessGame(apiKey, selectedModel = 'gemini-2.5-pro-preview-
   }, [apiKey, sessionId, aiStrategy, game, isAiThinking, isAiTurn, aiSide, selectedModel]);
 
   // Вспомогательная функция для выполнения хода
-  const executeMove = useCallback((sourceSquare, targetSquare, promotion = null) => {
+  const executeMove = useCallback(async (sourceSquare, targetSquare, promotion = null) => {
+    // Создаем объект хода для chess.js
+    const moveData = {
+      from: sourceSquare,
+      to: targetSquare,
+      ...(promotion && { promotion })
+    };
+
+    // Сначала делаем ход локально для быстрой реакции UI
+    const localMove = game.move(moveData);
+
+    if (localMove === null) {
+      // Если ход невалидный локально, он точно невалидный на сервере
+      console.error('Невалидный ход по мнению chess.js:', moveData);
+      return false;
+    }
+
+    // Обновляем FEN сразу для отзывчивости
+    setFen(game.fen());
+    setSelectedSquare(null);
+    setPossibleMoves([]);
+
     try {
-      const move = game.move({
-        from: sourceSquare,
-        to: targetSquare,
-        promotion: promotion
-      });
+      // Теперь отправляем ход на сервер для синхронизации
+      console.log(`➡️ Отправляем ход игрока на сервер:`, localMove.san);
+      const serverResponse = await gameService.makePlayerMove(sessionId, localMove);
 
-      if (move === null) {
-        return false;
-      }
-
-      // Получаем новое FEN состояние
-      const newFen = game.fen();
+      // Синхронизируем состояние с сервером
+      setFen(serverResponse.gameState.fen);
+      setGameStatus(serverResponse.gameState.status); // Обновляем статус с сервера
       
-      // Ход валидный - обновляем состояние
-      setFen(newFen);
+      // Обновляем историю на основе данных с сервера для консистентности
       setMoveHistory(prev => [...prev, {
         move: `${sourceSquare}${targetSquare}${promotion || ''}`,
-        san: move.san,
+        san: localMove.san,
         player: 'Человек',
         side: playerSide,
         timestamp: Date.now(),
-        reasoning: null, // У игрока нет объяснения
+        reasoning: null,
         newStrategy: null
       }]);
       setLastMove({ from: sourceSquare, to: targetSquare });
-      setSelectedSquare(null);
-      setPossibleMoves([]);
       setError(null);
-
-      console.log('✅ Игрок сделал ход:', move.san, 'Новое FEN:', newFen);
       
-      // Дополнительная синхронизация для превращения пешки
-      if (promotion) {
-        console.log('🔄 Превращение пешки завершено в:', promotion.toUpperCase());
-      }
-      
+      console.log('✅ Сервер подтвердил ход, состояние синхронизировано.');
       return true;
+
     } catch (error) {
-      console.error('Ошибка при ходе игрока:', error);
+      console.error('❌ Ошибка при отправке хода игрока на сервер:', error);
+      setError(`Ошибка синхронизации: ${error.message}`);
+      
+      // Если сервер отклонил ход, откатываем локальное изменение
+      game.undo();
+      setFen(game.fen());
+      console.log('🔄 Локальный ход отменен из-за ошибки сервера.');
+      
       return false;
     }
-  }, [game, playerSide]);
+  }, [game, playerSide, sessionId]);
 
   // Обработчик выбора фигуры превращения
   const handlePromotionSelect = useCallback((promotionPiece) => {
