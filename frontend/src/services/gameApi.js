@@ -3,7 +3,7 @@ import axios from 'axios';
 // Создаем экземпляр axios с базовой конфигурацией
 const api = axios.create({
   baseURL: '/api',
-  timeout: 30000,
+  timeout: 180000, // 3 минуты для thinking моделей
   headers: {
     'Content-Type': 'application/json'
   }

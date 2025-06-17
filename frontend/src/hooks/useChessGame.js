@@ -122,12 +122,36 @@ export function useChessGame(apiKey, selectedModel = 'gemini-2.5-pro-preview-05-
       console.log(`🎯 [CRITICAL DEBUG] Chess.js instance FEN: ${currentFen}`);
       console.log(`🎯 [CRITICAL DEBUG] FEN совпадают? ${fen === currentFen}`);
       
+      // Находим последний ход AI для анализа
+      console.log('🔍 [DEBUG] moveHistory полная:', JSON.stringify(moveHistory, null, 2));
+      console.log('🔍 [DEBUG] AI ходы в истории:', moveHistory.filter(m => m.player === 'AI'));
+      const lastAiMove = moveHistory
+        .slice()
+        .reverse()
+        .find(move => move.player === 'AI');
+      console.log('🔍 [DEBUG] Найденный lastAiMove:', lastAiMove);
+      
+      if (lastAiMove) {
+        console.log('✅ [DEBUG] История найдена! Отправляем:', {
+          move: lastAiMove.move,
+          san: lastAiMove.san,
+          reasoning: lastAiMove.reasoning
+        });
+      } else {
+        console.log('❌ [DEBUG] История не найдена - это первый ход AI');
+      }
+      
       const response = await getAiMove({
         fen: currentFen,
         strategy: aiStrategy,
         model: selectedModel,
         apiKey: apiKey,
-        aiSide: aiSide
+        aiSide: aiSide,
+        lastAiMove: lastAiMove ? {
+          move: lastAiMove.move,
+          san: lastAiMove.san,
+          reasoning: lastAiMove.reasoning
+        } : null
       });
 
       console.log('AI ответил:', response);
@@ -145,10 +169,14 @@ export function useChessGame(apiKey, selectedModel = 'gemini-2.5-pro-preview-05-
           side: aiSide,
           timestamp: Date.now(),
           reasoning: response.reasoning || null, // Добавляем объяснение хода
-          newStrategy: response.newStrategy || null // Добавляем новую стратегию
+          newStrategy: response.newStrategy || null, // Добавляем новую стратегию
+          mateCheck: response.mateCheck || null, // Добавляем проверку матов
+          attackCheck: response.attackCheck || null, // Добавляем проверку атак
+          lastMoveAnalysis: response.lastMoveAnalysis || null // Добавляем анализ предыдущего хода
         };
         
         console.log('📝 Добавляем в историю ходов:', moveData);
+        console.log('📝 [DEBUG] moveHistory ДО добавления:', moveHistory.length, 'ходов');
         
         const newFen = game.fen();
         console.log(`🎯 [CRITICAL] FEN ДО хода AI: ${currentFen}`);
@@ -158,7 +186,12 @@ export function useChessGame(apiKey, selectedModel = 'gemini-2.5-pro-preview-05-
         
         // Принудительно синхронизируем FEN
         setFen(newFen);
-        setMoveHistory(prev => [...prev, moveData]);
+        setMoveHistory(prev => {
+          const newHistory = [...prev, moveData];
+          console.log('📝 [DEBUG] moveHistory ПОСЛЕ добавления:', newHistory.length, 'ходов');
+          console.log('📝 [DEBUG] Последний ход в истории:', newHistory[newHistory.length - 1]);
+          return newHistory;
+        });
         setLastMove({ from: move.from, to: move.to });
         setAiStrategy(response.newStrategy || aiStrategy);
         
@@ -179,7 +212,7 @@ export function useChessGame(apiKey, selectedModel = 'gemini-2.5-pro-preview-05-
     } finally {
       setIsAiThinking(false);
     }
-  }, [apiKey, aiStrategy, game, selectedModel, aiSide, isAiTurn]);
+  }, [apiKey, aiStrategy, game, selectedModel, aiSide, isAiTurn, moveHistory]);
 
   // Эффект для автоматического хода AI когда его очередь
   useEffect(() => {

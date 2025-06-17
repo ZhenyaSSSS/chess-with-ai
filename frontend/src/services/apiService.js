@@ -3,7 +3,7 @@ import axios from 'axios';
 // Создаем экземпляр axios с базовой конфигурацией
 const api = axios.create({
   baseURL: '/api', // Vite проксирует это на localhost:3001
-  timeout: 30000, // 30 секунд на запрос (AI может думать долго)
+  timeout: 180000, // 3 минуты для thinking моделей
   headers: {
     'Content-Type': 'application/json'
   }

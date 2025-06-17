@@ -191,7 +191,7 @@ export const LIMITS = {
   API_KEY_MAX_LENGTH: 200,
   MAX_GAME_SESSIONS: 10,
   MAX_MOVE_HISTORY: 1000,
-  AI_TIMEOUT: 30000, // 30 секунд
+  AI_TIMEOUT: 180000, // 3 минуты для thinking моделей
   SESSION_TIMEOUT: 3600000 // 1 час
 };
 

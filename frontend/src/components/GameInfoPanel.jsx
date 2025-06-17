@@ -110,6 +110,42 @@ function GameInfoPanel({
         </div>
       )}
 
+      {/* --- Проверка матов AI --- */}
+      {(() => {
+        const lastAiMoveWithMateCheck = moveHistory.filter(m => m.player === 'AI' && m.mateCheck && !m.mateCheck.includes('не найдена')).slice(-1)[0];
+        if (!lastAiMoveWithMateCheck) return null;
+        
+        return (
+          <div className="bg-red-50 rounded-xl p-4 transition-all duration-300 border-l-4 border-red-400">
+            <div className="flex items-center mb-2">
+              <AlertCircle className="h-5 w-5 text-red-600 mr-2" />
+              <h3 className="font-semibold text-red-900">⚔️ AI ищет мат</h3>
+            </div>
+            <p className="text-red-800 text-sm leading-relaxed pl-7">
+              {lastAiMoveWithMateCheck.mateCheck}
+            </p>
+          </div>
+        );
+      })()}
+
+      {/* --- Анализ предыдущего хода AI --- */}
+      {(() => {
+        const lastAiMoveWithAnalysis = moveHistory.filter(m => m.player === 'AI' && m.lastMoveAnalysis).slice(-1)[0];
+        if (!lastAiMoveWithAnalysis) return null;
+        
+        return (
+          <div className="bg-orange-50 rounded-xl p-4 transition-all duration-300 border-l-4 border-orange-400">
+            <div className="flex items-center mb-2">
+              <Brain className="h-5 w-5 text-orange-600 mr-2" />
+              <h3 className="font-semibold text-orange-900">🔍 AI анализирует свой прошлый ход</h3>
+            </div>
+            <p className="text-orange-800 text-sm leading-relaxed pl-7">
+              {lastAiMoveWithAnalysis.lastMoveAnalysis}
+            </p>
+          </div>
+        );
+      })()}
+
       {/* --- Последнее объяснение AI --- */}
       {(() => {
         const lastAiMoveWithReasoning = moveHistory.filter(m => m.player === 'AI' && m.reasoning).slice(-1)[0];
